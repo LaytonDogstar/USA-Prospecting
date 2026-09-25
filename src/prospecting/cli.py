@@ -11,6 +11,7 @@ from pathlib import Path
 from . import db
 from .export import write_review
 from .importers import append_reference_template, import_filters, import_revenue, load_reference
+from .research import load_research
 
 
 def cmd_build(args):
@@ -28,6 +29,12 @@ def cmd_build(args):
     if added:
         print(f"Reference: {added} new names added to {reference} with no category - fill them in and re-run")
         load_reference(conn, reference)
+
+    research_files = sorted((db.data_dir() / "research").glob("*.json"))
+    if research_files:
+        r = load_research(conn, research_files)
+        print(f"Research: {r['companies']} companies, {r['facts']} sourced facts from {len(research_files)} files "
+              f"({r['skipped_no_source']} facts without a source skipped, {r['unmatched']} names not matched to a buyer)")
 
     out = Path(args.out) if args.out else db.output_dir() / f"client_profile_review_{date.today():%Y%m%d}.xlsx"
     res = write_review(conn, out, args.period, rev["duplicates_skipped"])

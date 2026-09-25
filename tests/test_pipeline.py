@@ -1,5 +1,6 @@
 """End-to-end test on synthetic exports. Uses made-up buyer names only."""
 import csv
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ from prospecting.export import write_review
 from prospecting.importers import import_filters, import_revenue, load_reference, unknown_aliases
 from prospecting.names import looks_like_filter_value, parse_range, split_buyer_tier
 from prospecting.profiles import build_profiles
+from prospecting.research import fact_rows, load_research, research_by_buyer
 
 HEADER = ["Name", "Processed", "Sent", "Unique Sold", "Multi Sell", "Total Sold", "Declined", "Error",
           "Redirected", "Remarketed", "Commission", "EPL", "Response Time", "Tree", "Tree %"]
@@ -110,6 +112,26 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(p["Big Volume"]["reference_segment"], "volume")
         self.assertIsNone(p["Some Network"]["volume_tier"])     # networks excluded from tiering
         self.assertEqual(p["Dormant Lender"]["status"], "no sales this period")
+
+    def test_research(self):
+        path = self.tmp / "research.json"
+        path.write_text(json.dumps([
+            {"buyer": "Big Volume V2", "website": "bigvolume.example", "confidence": "high", "notes": "n",
+             "facts": [{"field": "company_type", "value": "tribal", "source_url": "https://bigvolume.example/about",
+                        "quote": "owned by the Example Tribe"},
+                       {"field": "products", "value": ["installment loan", "line of credit"],
+                        "source_url": "https://bigvolume.example/rates", "quote": "q"},
+                       {"field": "hq_location", "value": "Somewhere", "source_url": None}]},
+            {"buyer": "Nobody We Know", "website": None, "confidence": "low", "facts": []},
+        ]))
+        res = load_research(self.conn, [path])
+        self.assertEqual(res, {"companies": 2, "facts": 2, "skipped_no_source": 1, "unmatched": 1})
+        r = research_by_buyer(self.conn)["Big Volume"]          # alias resolved to canonical buyer
+        self.assertEqual(r["r_company_type"], "tribal")
+        self.assertEqual(r["r_products"], "installment loan, line of credit")
+        self.assertEqual(len(fact_rows(self.conn)), 2)
+        load_research(self.conn, [path])                        # reloading replaces, not duplicates
+        self.assertEqual(len(fact_rows(self.conn)), 2)
 
     def test_workbook(self):
         out = self.tmp / "review.xlsx"

@@ -9,6 +9,7 @@ from openpyxl.utils import get_column_letter
 
 from .importers import unknown_aliases
 from .profiles import TIERED_CATEGORIES, build_profiles, segment_summary
+from .research import fact_rows, research_by_buyer
 
 HEADER_FILL = PatternFill("solid", fgColor="D9E2F3")
 EDIT_FILL = PatternFill("solid", fgColor="FFF9E6")
@@ -39,14 +40,25 @@ BUYER_COLUMNS = [
     ("Pay frequency", "pay_freq", None, 26, False),
     ("Direct deposit only", "dd_label", None, 9, False),
     ("Filters on file", "filters_label", None, 8, False),
+    ("Company type (research)", "r_company_type", None, 16, False),
+    ("Tribe (research)", "r_tribe", None, 22, False),
+    ("Products (research)", "r_products", None, 26, False),
+    ("Parent / servicer (research)", "r_parent_or_servicer", None, 26, False),
+    ("HQ (research)", "r_hq_location", None, 18, False),
+    ("Size signals (research)", "r_size_signals", None, 30, False),
+    ("Research confidence", "research_confidence", None, 10, False),
+    ("Research notes", "research_notes", None, 40, False),
     ("Notes", "notes", None, 40, True),
 ]
 
 
-def _flatten(p):
+def _flatten(p, research):
     states = p.get("states_accepted")
+    r = research.get(p["buyer"], {})
     return {
+        **r,
         **p,
+        "website": p.get("website") or r.get("research_website"),
         "n_states": len(states) if states else None,
         "states": ", ".join(states) if states else None,
         "loan_max_label": "no limit" if p.get("loan_max_unbounded") else p.get("loan_max"),
@@ -116,7 +128,8 @@ def _readme(wb, period, counts):
 
 
 def write_review(conn: sqlite3.Connection, path: Path, period: str, duplicates: int = 0) -> dict:
-    profiles = [_flatten(p) for p in build_profiles(conn)]
+    research = research_by_buyer(conn)
+    profiles = [_flatten(p, research) for p in build_profiles(conn)]
     tiered = [p for p in profiles if p["category"] in TIERED_CATEGORIES]
     counts = {
         "revenue_rows": conn.execute("SELECT COUNT(*) FROM tier_revenue").fetchone()[0],
@@ -170,6 +183,14 @@ def write_review(conn: sqlite3.Connection, path: Path, period: str, duplicates: 
                        "detail": f"{r['n']} filter rows had a value in the tier column; grouped as one unnamed tier."})
     _sheet(wb, "Data issues", [("Issue", "issue", None, 34, False), ("Buyer", "buyer", None, 30, False),
                                ("Detail", "detail", None, 80, False)], issues)
+
+    facts = fact_rows(conn)
+    if facts:
+        _sheet(wb, "Research facts", [
+            ("Buyer", "buyer", None, 28, False), ("Website", "website", None, 24, False),
+            ("Field", "field", None, 18, False), ("Value", "value", None, 45, False),
+            ("Source", "source_url", None, 45, False), ("Supporting text", "quote", None, 60, False),
+            ("Verified by", "verified_by", None, 12, True)], facts)
 
     tier_rows = [dict(r) for r in conn.execute(
         """SELECT COALESCE(b.canonical_name, r.alias) AS buyer, r.tier_name, r.is_price_reject,
