@@ -260,6 +260,7 @@ def write_targets(conn: sqlite3.Connection, path: Path) -> dict:
         ("Fit", "fit", None, 12, False),
         ("Type", "r_company_type", None, 22, False),
         ("Why it fits", "why", None, 70, False),
+        ("Operator group", "operator_group", None, 28, False),
         ("Consumer brands", "r_consumer_brands", None, 40, False),
         ("Parent / servicer", "r_parent_or_servicer", None, 30, False),
         ("Tribe", "r_tribe", None, 22, False),

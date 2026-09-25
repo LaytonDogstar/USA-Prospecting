@@ -75,7 +75,8 @@ def screen(name: str) -> str | None:
 
 
 def load_matches(path: Path) -> dict[str, dict]:
-    """company_matches.csv: cfpb_name, buyer (canonical buyer name, blank if not a client), operator_group, note."""
+    """company_matches.csv: cfpb_name, buyer (canonical buyer name, blank if not a client), operator_group, note,
+    exclude_reason (set to screen a company out by hand, e.g. after research shows it isn't a lender)."""
     if not path.exists():
         return {}
     with open(path, newline="", encoding="utf-8-sig") as f:
@@ -108,7 +109,7 @@ def build_universe(conn: sqlite3.Connection, matches_path: Path, months: int = 1
         facts = {f"complaints_{sp.lower().replace(' ', '_')}": n for sp, n in by_sp.items()}
         facts["complaints_total"] = sum(by_sp.values())
         facts["complaints_since"] = since
-        label = screen(name)
+        label = (m.get("exclude_reason") or "").strip() or screen(name)
         if label:
             facts["screened_out"] = label
             stats["screened_out"] += 1
