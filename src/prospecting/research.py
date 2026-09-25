@@ -10,7 +10,8 @@ import sqlite3
 from pathlib import Path
 
 SOURCE = "web research (client profiling)"
-SUMMARY_FIELDS = ("company_type", "tribe", "products", "parent_or_servicer", "hq_location", "size_signals")
+SUMMARY_FIELDS = ("company_type", "tribe", "products", "parent_or_servicer", "related_brands", "hq_location",
+                  "size_signals", "litigation_or_regulatory")
 
 
 def _text(value) -> str:
