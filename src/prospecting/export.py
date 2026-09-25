@@ -208,3 +208,99 @@ def write_review(conn: sqlite3.Connection, path: Path, period: str, duplicates: 
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
     return {"buyers": len(profiles), "win_back": len(winback), "issues": len(issues)}
+
+
+def write_targets(conn: sqlite3.Connection, path: Path) -> dict:
+    from .scoring import WEIGHTS, score
+    from .discover import universe_rows
+    targets = score(conn)
+    researched = [t for t in targets if t["researched"]]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Read me"
+    ws.column_dimensions["A"].width = 120
+    lines = [
+        ("Prospect targets", True),
+        (f"Generated {date.today().isoformat()}. Universe: companies in the CFPB complaint database with installment, "
+         "payday or personal line of credit complaints in the last 12 months.", False),
+        ("", False),
+        ("Sheets", True),
+        ("Targets: researched prospects, scored. Shaded columns are for you (decision, owner, notes).", False),
+        ("Universe: every company in the CFPB pull with its status (client, screened out, candidate).", False),
+        ("", False),
+        ("Score (max ~90)", True),
+        (f"Size up to {WEIGHTS['size']} (complaint volume, log scale) + type fit up to {WEIGHTS['type']} "
+         f"(operator/servicer > tribal > bank-partner > state-licensed) + online {WEIGHTS['online']} + lead-buying "
+         f"evidence {WEIGHTS['lead_signals']} + segment (subprime +5, prime -20).", False),
+        ("Fit: 'price' = installment / loans up to $2,500+ (like your high-revenue buyers); 'volume' = small-dollar "
+         "(like your high-volume buyers).", False),
+        ("", False),
+        ("Caveats", True),
+        ("Complaint counts are a rough size signal: larger lenders get more complaints, but so do badly run ones.", False),
+        ("Research facts come from public pages and are cited on the Sources column; check before relying on them. "
+         "Litigation is shown for awareness, not scored.", False),
+        ("Existing clients were matched by hand (data/reference/company_matches.csv); a missed match can show a client "
+         "as a target — tell me and I'll add it.", False),
+        ("This file is confidential. Contacts are not included yet (step 3).", True),
+    ]
+    for i, (text, bold) in enumerate(lines, 1):
+        c = ws.cell(row=i, column=1, value=text)
+        c.font = Font(bold=bold, size=13 if i == 1 else 11)
+        c.alignment = Alignment(wrap_text=True)
+
+    for t in researched:
+        t["sources_text"] = "\n".join(sorted(t["sources"])[:6])
+        t["decision"] = t.get("decision")
+    cols = [
+        ("Rank", "rank", None, 5, False),
+        ("Company (CFPB name)", "company", None, 32, False),
+        ("Website", "website", None, 24, False),
+        ("Score", "score", "0.0", 7, False),
+        ("Fit", "fit", None, 12, False),
+        ("Type", "r_company_type", None, 22, False),
+        ("Why it fits", "why", None, 70, False),
+        ("Consumer brands", "r_consumer_brands", None, 40, False),
+        ("Parent / servicer", "r_parent_or_servicer", None, 30, False),
+        ("Tribe", "r_tribe", None, 22, False),
+        ("Products", "r_products", None, 26, False),
+        ("Loan range", "r_loan_amount_range", None, 20, False),
+        ("States", "r_states_served", None, 30, False),
+        ("Online / branch", "r_storefront_or_online", None, 14, False),
+        ("Segment", "r_customer_segment", None, 12, False),
+        ("Lead-buying evidence", "r_lead_buying_signals", None, 40, False),
+        ("Litigation / regulatory", "r_litigation_or_regulatory", None, 40, False),
+        ("CFPB complaints (12m)", "complaints_total", "#,##0", 10, False),
+        ("Roles to approach", "roles", None, 40, False),
+        ("Research confidence", "r_research_confidence", None, 10, False),
+        ("Sources", "sources_text", None, 50, False),
+        ("Score: size", "score_size", "0.0", 7, False),
+        ("Score: type", "score_type", "0.0", 7, False),
+        ("Score: online", "score_online", "0.0", 7, False),
+        ("Score: lead signals", "score_lead_signals", "0.0", 7, False),
+        ("Score: segment", "score_segment", "0", 7, False),
+        ("Decision (pursue / park / drop)", "decision", None, 14, True),
+        ("Owner", "owner", None, 12, True),
+        ("Your notes", "your_notes", None, 40, True),
+    ]
+    for i, t in enumerate(researched, 1):
+        t["rank"] = i
+    _sheet(wb, "Targets", cols, researched, freeze="C2")
+
+    uni = universe_rows(conn)
+    for u in uni:
+        u["status"] = ("existing client / group" if u["buyer"] else
+                       f"screened out: {u['screened_out']}" if u.get("screened_out") else
+                       "candidate - researched" if any(t["company"] == u["company"] and t["researched"]
+                                                       for t in researched) else "candidate - not yet researched")
+    _sheet(wb, "Universe", [
+        ("Company (CFPB name)", "company", None, 40, False), ("Status", "status", None, 40, False),
+        ("Matched buyer", "buyer", None, 26, False), ("Operator group", "operator_group", None, 30, False),
+        ("Complaints (12m)", "complaints_total", "#,##0", 10, False),
+        ("Installment", "complaints_installment_loan", None, 9, False),
+        ("Payday", "complaints_payday_loan", None, 9, False),
+        ("Line of credit", "complaints_personal_line_of_credit", None, 9, False)], uni)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)
+    return {"targets": len(researched), "universe": len(uni)}

@@ -82,3 +82,41 @@ def fact_rows(conn: sqlite3.Connection) -> list[dict]:
            JOIN company_fact f ON f.company_id = c.id
            WHERE c.source = ? AND f.field != 'research_confidence'
            ORDER BY 1, f.id""", (SOURCE,))]
+
+
+PROSPECT_PREFIX = "research."
+
+
+def load_prospect_research(conn: sqlite3.Connection, paths: list[Path], company_source: str) -> dict:
+    """Attach prospect research facts to universe companies (matched on exact company name).
+
+    Facts are stored with a 'research.' field prefix so universe rebuilds and research reloads
+    don't clobber each other.
+    """
+    ids = {r["name"]: r["id"] for r in conn.execute("SELECT id, name FROM company WHERE source = ?", (company_source,))}
+    conn.execute(f"DELETE FROM company_fact WHERE field LIKE '{PROSPECT_PREFIX}%' "
+                 "AND company_id IN (SELECT id FROM company WHERE source = ?)", (company_source,))
+    stats = {"companies": 0, "facts": 0, "skipped_no_source": 0, "unmatched": []}
+    for path in paths:
+        for rec in json.loads(Path(path).read_text()):
+            cid = ids.get(" ".join(rec["buyer"].split()))
+            if cid is None:
+                stats["unmatched"].append(rec["buyer"])
+                continue
+            stats["companies"] += 1
+            if rec.get("website"):
+                conn.execute("UPDATE company SET website = ? WHERE id = ?", (rec["website"], cid))
+            conn.execute("INSERT INTO company_fact (company_id, field, value, source_url, quote) VALUES (?,?,?,?,?)",
+                         (cid, PROSPECT_PREFIX + "research_confidence", rec.get("confidence") or "low", "n/a",
+                          rec.get("notes")))
+            for f in rec.get("facts") or []:
+                if f.get("value") in (None, "", []):
+                    continue
+                if not f.get("source_url"):
+                    stats["skipped_no_source"] += 1
+                    continue
+                conn.execute("INSERT INTO company_fact (company_id, field, value, source_url, quote) VALUES (?,?,?,?,?)",
+                             (cid, PROSPECT_PREFIX + f["field"], _text(f["value"]), f["source_url"], f.get("quote")))
+                stats["facts"] += 1
+    conn.commit()
+    return stats
