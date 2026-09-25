@@ -1,0 +1,15 @@
+# Client, commercial and contact data never goes in git.
+data/
+output/
+*.db
+*.sqlite
+
+# Secrets
+.env
+secrets.*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
