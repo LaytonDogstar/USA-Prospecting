@@ -59,6 +59,13 @@ def cmd_targets(args):
     print(f"Targets workbook: {out} ({res['targets']} scored targets, {res['universe']} companies in universe)")
 
 
+def cmd_dashboard(args):
+    from .dashboard import write_dashboard
+    out = Path(args.out) if args.out else db.output_dir() / f"prospect_dashboard_{date.today():%Y%m%d}.html"
+    res = write_dashboard(db.connect(), out)
+    print(f"Dashboard: {out} ({res['targets']} prospects)")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="prospecting")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -73,6 +80,9 @@ def main(argv=None):
     t.add_argument("--months", type=int, default=12, help="CFPB look-back window in months")
     t.add_argument("--out", help="Output .xlsx path (default: output/targets_<date>.xlsx)")
     t.set_defaults(func=cmd_targets)
+    d = sub.add_parser("dashboard", help="Write the interactive HTML prospect dashboard (run `targets` first)")
+    d.add_argument("--out", help="Output .html path (default: output/prospect_dashboard_<date>.html)")
+    d.set_defaults(func=cmd_dashboard)
     args = parser.parse_args(argv)
     args.func(args)
 
