@@ -228,6 +228,10 @@ def write_targets(conn: sqlite3.Connection, path: Path) -> dict:
         ("Sheets", True),
         ("Targets: researched prospects, scored. Shaded columns are for you (decision, owner, notes).", False),
         ("Universe: every company in the CFPB pull with its status (client, screened out, candidate).", False),
+        ("Lead-buying strength: who buys leads most, across prospects, your clients and buyers not yet on our lists. "
+         "0-100 from: appearances on lead-gen partner/consent lists 30, organic search traffic 20 and paid-search "
+         "spend 15 (Ahrefs estimates), disclosed lead buying 15, affiliate programme 10, conferences 5, hiring 5. "
+         "Each part is scaled against the strongest company, so the index is relative.", False),
         ("", False),
         ("Score (max ~90)", True),
         (f"Size up to {WEIGHTS['size']} (complaint volume, log scale) + type fit up to {WEIGHTS['type']} "
@@ -249,6 +253,16 @@ def write_targets(conn: sqlite3.Connection, path: Path) -> dict:
         c.font = Font(bold=bold, size=13 if i == 1 else 11)
         c.alignment = Alignment(wrap_text=True)
 
+    from .signals import build as build_signals
+    from .db import data_dir
+    strength = build_signals(data_dir() / "research" / "signals")
+    by_target = {r["name"]: r for r in strength if r["kind"] == "target"}
+    for t in researched:
+        s = by_target.get(t["company"], {})
+        t["strength"] = s.get("strength")
+        t["n_lists"] = s.get("n_lists")
+        t["org_traffic"] = s.get("org_traffic") or None
+        t["paid_spend"] = round(s["paid_spend"]) if s.get("paid_spend") else None
     for t in researched:
         t["sources_text"] = "\n".join(sorted(t["sources"])[:6])
         t["decision"] = t.get("decision")
@@ -258,6 +272,10 @@ def write_targets(conn: sqlite3.Connection, path: Path) -> dict:
         ("Website", "website", None, 24, False),
         ("Score", "score", "0.0", 7, False),
         ("Fit", "fit", None, 12, False),
+        ("Lead-buying strength (0-100)", "strength", "0.0", 9, False),
+        ("On partner lists (#)", "n_lists", "0", 8, False),
+        ("Organic visits/mo (Ahrefs)", "org_traffic", "#,##0", 11, False),
+        ("Paid search $/mo (Ahrefs)", "paid_spend", "#,##0", 11, False),
         ("Type", "r_company_type", None, 22, False),
         ("Why it fits", "why", None, 70, False),
         ("Operator group", "operator_group", None, 28, False),
@@ -287,6 +305,35 @@ def write_targets(conn: sqlite3.Connection, path: Path) -> dict:
     for i, t in enumerate(researched, 1):
         t["rank"] = i
     _sheet(wb, "Targets", cols, researched, freeze="C2")
+
+    for i, r in enumerate(strength, 1):
+        r["rank"] = i
+        r["kind_label"] = {"target": "prospect", "client": "existing client",
+                           "unmatched": "not on our lists yet"}[r["kind"]]
+        r["lists_text"] = ", ".join(r["partner_lists"])
+        r["aliases_text"] = ", ".join(r["aliases"][:5])
+        r["domains_text"] = ", ".join(r["domains"])
+        r["disclosed_text"] = "; ".join(r["disclosed"])
+        r["affiliate_text"] = "; ".join(r["affiliate"])
+        r["events_text"] = ", ".join(r["events"])
+        r["hiring_text"] = "; ".join(r["hiring"])
+        r["paid_spend_r"] = round(r["paid_spend"])
+        for k, v in r["parts"].items():
+            r[f"p_{k}"] = v
+    if strength:
+        _sheet(wb, "Lead-buying strength", [
+            ("Rank", "rank", None, 5, False), ("Company", "name", None, 34, False),
+            ("Relationship", "kind_label", None, 16, False), ("Strength (0-100)", "strength", "0.0", 9, False),
+            ("Partner lists (#)", "n_lists", "0", 8, False), ("Lists it appears on", "lists_text", None, 40, False),
+            ("Names seen", "aliases_text", None, 30, False), ("Domains sized", "domains_text", None, 30, False),
+            ("Organic visits/mo", "org_traffic", "#,##0", 11, False), ("Paid search $/mo", "paid_spend_r", "#,##0", 11, False),
+            ("Disclosed acquisition data", "disclosed_text", None, 50, False),
+            ("Affiliate programme", "affiliate_text", None, 40, False), ("Conferences", "events_text", None, 30, False),
+            ("Lead-acquisition hiring", "hiring_text", None, 40, False),
+            ("Pts: lists", "p_partner_lists", "0.0", 7, False), ("Pts: organic", "p_org_traffic", "0.0", 7, False),
+            ("Pts: paid", "p_paid_spend", "0.0", 7, False), ("Pts: disclosed", "p_disclosed", "0", 7, False),
+            ("Pts: affiliate", "p_affiliate", "0", 7, False), ("Pts: events", "p_events", "0", 7, False),
+            ("Pts: hiring", "p_hiring", "0", 7, False)], strength)
 
     uni = universe_rows(conn)
     for u in uni:
