@@ -2,7 +2,8 @@
 
 Inputs (data/research/signals/):
   ahrefs_us_*.json          search traffic and paid-search spend per domain (Ahrefs)
-  partner_lists.json        consent / partner lists published by lead-gen sites (who receives leads)
+  partner_lists.json        consent / partner lists published by lead-gen sites (who receives leads);
+                            near-identical lists shared by several sites are counted once
   acquisition_signals.json  disclosed marketing spend, partner share, affiliate programmes
   events_hiring.json        conference sponsorship and lead-acquisition hiring
 
@@ -22,16 +23,18 @@ from pathlib import Path
 
 WEIGHTS = {"partner_lists": 30, "org_traffic": 20, "paid_spend": 15, "disclosed": 15,
            "affiliate": 10, "events": 5, "hiring": 5}
-STOP = {"llc", "inc", "corp", "corporation", "co", "company", "ltd", "lp", "l", "p", "the", "holdings", "group",
-        "financial", "finance", "services", "lending", "loans", "loan", "credit", "dba", "d", "b", "a", "of",
-        "usa", "us", "com", "net", "org", "cash", "money"}
+LEGAL = {"llc", "inc", "corp", "corporation", "co", "company", "ltd", "lp", "l", "p", "the", "dba", "d", "b", "a",
+         "holdings", "group", "com", "net"}
 
 
 def norm(name: str) -> str:
+    """Light normalisation: lower case, punctuation and legal suffixes removed, spaces squashed.
+    Deliberately strict - generic words like 'cash' or 'credit' are kept, or unrelated brands collide."""
     s = re.sub(r"https?://|www\.", "", (name or "").lower())
     s = re.sub(r"\.(com|net|org|cash|loans?|io|co)\b", " ", s)
+    s = re.sub(r"\(.*?\)", " ", s)
     s = re.sub(r"[^a-z0-9]+", " ", s)
-    return " ".join(w for w in s.split() if w not in STOP)
+    return "".join(w for w in s.split() if w not in LEGAL)
 
 
 def domain(w: str | None) -> str | None:
@@ -57,7 +60,7 @@ class Matcher:
         d = domain(website)
         if d:
             self.by_domain[d] = key
-            self.by_name.setdefault(norm(d.split(".")[0]), key)
+            self.by_name.setdefault(norm(d.rsplit(".", 1)[0]), key)
         n = norm(name)
         if n:
             self.by_name.setdefault(n, key)
@@ -78,11 +81,58 @@ class Matcher:
             return None
         if n in self.by_name:
             return self.by_name[n]
-        squashed = n.replace(" ", "")
+        # "Lendmark Financial Services" vs a known "Lendmark": allow a known name as a prefix of 8+ characters
         for k, v in self.by_name.items():
-            if len(k) >= 5 and k.replace(" ", "") == squashed:
+            if len(k) >= 8 and n.startswith(k) and len(n) - len(k) <= 20:
                 return v
         return None
+
+
+NOT_LENDER = re.compile(r"debt|relief|settlement|insur|medicare|health|mortgage|home ?loan|refinanc|solar|\btax|"
+                        r"\bauto|\bcar\b|carvana|vehicle|realty|real estate|annuit|legal|\blaw\b|attorney|repair|"
+                        r"consolidat|student|educat|school|universit|college|energy|warranty|media|marketing|"
+                        r"\bleads?\b|leadsmarket|network|\bads\b|advertis|wentworth|credit pros|creditassociates|"
+                        r"clearone|dmb financial|freedom ?plus|newfinity|quinstreet|epcvip|even financial|credible|"
+                        r"search ?roi|offer ?edge|one park|rapid advance|business|guaranteed rate|reliance first|"
+                        r"american financial resources|springleaf|splash", re.IGNORECASE)
+
+
+def not_a_lender(name: str) -> bool:
+    """Partner lists mix lenders with debt relief, insurance, mortgage, lead networks etc.
+    Unmatched names of that kind are dropped; matched names (known companies) are always kept."""
+    from .discover import screen
+    return bool(NOT_LENDER.search(name) or screen(name))
+
+
+def _list_families(lists: list[dict], threshold: float = 0.6):
+    """Many lead-gen sites share one partner list. Group lists whose partner sets overlap by at least
+    `threshold` (Jaccard) and count each group once, so shared templates don't inflate the signal.
+    Yields (family label, list) for one representative per family: the longest list."""
+    sets = [{norm(p) for p in l.get("partners", []) if norm(p)} for l in lists]
+    parent = list(range(len(lists)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for i in range(len(lists)):
+        for j in range(i + 1, len(lists)):
+            a, b = sets[i], sets[j]
+            if a and b and len(a & b) / len(a | b) >= threshold:
+                parent[find(i)] = find(j)
+    groups: dict[int, list[int]] = defaultdict(list)
+    for i in range(len(lists)):
+        groups[find(i)].append(i)
+    for members in groups.values():
+        rep = max(members, key=lambda i: len(sets[i]))
+        sites = sorted(domain(lists[i].get("site")) or str(lists[i].get("site")) for i in members)
+        label = sites[0] + (f" (+{len(sites) - 1} sites)" if len(sites) > 1 else "")
+        yield label, lists[rep]
+
+
+def list_family_count(signals_dir: Path) -> int:
+    return sum(1 for _ in _list_families(_load(signals_dir / "partner_lists.json", [])))
 
 
 def _load(path: Path, default):
@@ -92,6 +142,9 @@ def _load(path: Path, default):
 def build(signals_dir: Path) -> list[dict]:
     known = _load(signals_dir / "known_companies.json", {"targets": [], "clients": []})
     m = Matcher(known)
+    # Hand-maintained extra names: {"Name as seen": ["target"|"client", "known company name"]}
+    for alias, key in _load(signals_dir / "aliases.json", {}).items():
+        m.by_name[norm(alias)] = tuple(key)
     rows: dict = defaultdict(lambda: {"partner_lists": set(), "org_traffic": 0, "paid_spend": 0.0,
                                       "disclosed": [], "affiliate": [], "events": set(), "hiring": [],
                                       "aliases": set(), "domains": set()})
@@ -114,11 +167,15 @@ def build(signals_dir: Path) -> list[dict]:
             r["paid_spend"] += paid_cost / 100
             r["domains"].add(d)
 
-    for lst in _load(signals_dir / "partner_lists.json", []):
+    for family, lst in _list_families(_load(signals_dir / "partner_lists.json", [])):
         for p in lst.get("partners", []):
-            key = m.match(name=p) or ("unmatched", norm(p) or p)
+            key = m.match(name=p)
+            if not key:
+                if not_a_lender(p):
+                    continue
+                key = ("unmatched", norm(p) or p)
             r = row(key)
-            r["partner_lists"].add(domain(lst.get("site")) or lst.get("site"))
+            r["partner_lists"].add(family)
             r["aliases"].add(p)
 
     for rec in _load(signals_dir / "acquisition_signals.json", []):

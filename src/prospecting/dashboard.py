@@ -87,8 +87,28 @@ def _benchmark(conn) -> list[dict]:
     return sorted(groups.values(), key=lambda g: -g["revenue"])
 
 
+def _buyers(signals_dir: Path) -> list[dict]:
+    from .signals import build
+    rel = {"target": "Prospect", "client": "Existing client", "unmatched": "Not on our lists yet"}
+    return [{"name": r["name"] if r["kind"] != "unmatched" else (r["aliases"][0] if r["aliases"] else r["name"]),
+             "rel": rel[r["kind"]], "strength": r["strength"], "lists": r["n_lists"],
+             "org": r["org_traffic"], "paid": round(r["paid_spend"]), "parts": r["parts"],
+             "list_names": r["partner_lists"], "disclosed": r["disclosed"], "affiliate": r["affiliate"],
+             "events": r["events"], "hiring": r["hiring"]} for r in build(signals_dir)[:40]]
+
+
 def write_dashboard(conn: sqlite3.Connection, path: Path) -> dict:
-    data = {"asof": date.today().isoformat(), "targets": _targets(conn), "benchmark": _benchmark(conn)}
+    from .db import data_dir
+    buyers = _buyers(data_dir() / "research" / "signals")
+    strength = {b["name"]: b for b in buyers if b["rel"] == "Prospect"}
+    targets = _targets(conn)
+    for t in targets:
+        b = strength.get(t["company"])
+        t["strength"] = b["strength"] if b else None
+        t["org"] = b["org"] if b else None
+        t["paid"] = b["paid"] if b else None
+        t["lists"] = b["lists"] if b else None
+    data = {"asof": date.today().isoformat(), "targets": targets, "benchmark": _benchmark(conn), "buyers": buyers}
     payload = json.dumps(data).replace("</", "<\\/")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(TEMPLATE.replace("__DATA__", payload), encoding="utf-8")
@@ -229,13 +249,20 @@ tbody tr.sel { background: var(--hover); box-shadow: inset 3px 0 0 var(--s1); }
     </div>
   </div>
 
+  <div class="card" style="margin-bottom:16px">
+    <h2>Who buys leads most</h2>
+    <p class="note">Lead-buying strength (0–100), relative to the strongest in the set. Built from appearances on lead-gen partner/consent lists (duplicate lists counted once), Ahrefs organic traffic and paid-search spend, disclosed lead buying, affiliate programmes, conferences and hiring. Includes your clients and buyers not yet on our lists. Hover for the breakdown.</p>
+    <div class="legend" id="buyer-legend"></div>
+    <div class="bars" id="buyerbars"></div>
+  </div>
+
   <div class="card">
     <h2>Targets</h2>
     <p class="note">Click a column to sort, a row for detail. ✓ = evidence they buy leads. ⚠ = lawsuit or regulator action on record.</p>
     <div class="table-wrap"><table id="tbl">
       <thead><tr>
         <th data-k="rank" class="num">#</th><th data-k="company">Company</th><th data-k="group">Setup</th>
-        <th data-k="fit">Fit</th><th data-k="score" class="num">Score</th><th data-k="complaints" class="num">Complaints</th>
+        <th data-k="fit">Fit</th><th data-k="score" class="num">Score</th><th data-k="strength" class="num">Buying strength</th><th data-k="complaints" class="num">Complaints</th>
         <th data-k="channel">Channel</th><th data-k="lead">Signals</th><th data-k="website">Website</th>
       </tr></thead>
       <tbody></tbody>
@@ -395,17 +422,17 @@ function setupBars(rows) {
 
 function table(rows) {
   const sorted = [...rows].sort((a, b) => {
-    const x = a[sortKey], y = b[sortKey];
+    const x = a[sortKey] ?? -1, y = b[sortKey] ?? -1;
     return (typeof x === "number" ? x - y : String(x).localeCompare(String(y))) * sortDir;
   });
   $("#tbl tbody").innerHTML = sorted.map(t => `<tr data-c="${esc(t.company)}" class="${selected === t.company ? "sel" : ""}">
     <td class="num">${t.rank}</td><td>${esc(t.company)}${t.operator ? `<br><span class="note">${esc(t.operator)}</span>` : ""}</td>
     <td><span class="dot" style="background:${col(t.group)}"></span> ${esc(t.group)}</td>
-    <td>${esc(t.fit || "–")}</td><td class="num">${t.score.toFixed(1)}</td><td class="num">${fmt(t.complaints)}</td>
+    <td>${esc(t.fit || "–")}</td><td class="num">${t.score.toFixed(1)}</td><td class="num">${t.strength == null ? "–" : t.strength.toFixed(1)}</td><td class="num">${fmt(t.complaints)}</td>
     <td>${esc(t.channel)}</td>
     <td>${t.lead ? '<span class="flag lead">buys leads</span><br>' : ""}${t.litigation ? '<span class="flag lit">litigation</span>' : ""}</td>
     <td>${t.website ? esc(t.website) : '<span class="note">–</span>'}</td></tr>`).join("")
-    || `<tr><td colspan="9" class="empty">No prospects match these filters.</td></tr>`;
+    || `<tr><td colspan="10" class="empty">No prospects match these filters.</td></tr>`;
   $("#tbl tbody").querySelectorAll("tr[data-c]").forEach(tr => tr.onclick = () => select(tr.dataset.c));
   document.querySelectorAll("#tbl th").forEach(th => {
     th.textContent = th.textContent.replace(/ [▲▼]$/, "") + (th.dataset.k === sortKey ? (sortDir > 0 ? " ▲" : " ▼") : "");
@@ -434,6 +461,7 @@ function detail() {
       ${row("Loan range", esc(t.loans))}
       ${row("States", esc(t.states))}
       ${row("Segment", esc(t.segment))}
+      ${row("Lead-buying strength", t.strength == null ? "" : `${t.strength.toFixed(1)} <span class="note">(${t.lists || 0} partner lists · ${fmt(t.org || 0)} organic visits/mo · $${fmt(t.paid || 0)}/mo paid search)</span>`)}
       ${row("CFPB complaints", `${fmt(t.complaints)} <span class="note">(${fmt(t.installment)} installment · ${fmt(t.payday)} payday · ${fmt(t.loc)} line of credit)</span>`)}
       ${row("Lead-buying evidence", esc(t.lead))}
       ${row("Litigation / regulatory", esc(t.litigation))}
@@ -452,10 +480,30 @@ function tip(e, html) {
 }
 function hideTip() { tipEl.style.display = "none"; }
 
+const REL_VAR = {"Prospect": "--s1", "Existing client": "--s2", "Not on our lists yet": "--s3"};
+function buyerBars() {
+  const b = DATA.buyers || [];
+  if (!b.length) { document.querySelector("#buyerbars").closest(".card").style.display = "none"; return; }
+  const rels = Object.keys(REL_VAR).filter(r => b.some(x => x.rel === r));
+  $("#buyer-legend").innerHTML = rels.map(r => `<span><span class="dot" style="background:var(${REL_VAR[r]})"></span>${esc(r)}</span>`).join("");
+  const top = b.slice(0, 25);
+  bars("#buyerbars", top.map(x => ({name: x.name, key: x.name, v: x.strength, color: `var(${REL_VAR[x.rel]})`})), 100, v => v.toFixed(0));
+  document.querySelectorAll("#buyerbars .row").forEach((r, i) => {
+    const x = top[i], p = x.parts;
+    r.onmousemove = e => tip(e, `<b>${esc(x.name)}</b>${esc(x.rel)} · strength ${x.strength}<br>` +
+      `${x.lists} partner lists · ${fmt(x.org)} organic visits/mo · $${fmt(x.paid)}/mo paid search<br>` +
+      `points: lists ${p.partner_lists} · organic ${p.org_traffic} · paid ${p.paid_spend} · disclosed ${p.disclosed} · affiliate ${p.affiliate} · events ${p.events} · hiring ${p.hiring}` +
+      (x.disclosed.length ? `<br>${esc(x.disclosed.slice(0, 2).join(" · ")).slice(0, 220)}` : ""));
+    r.onmouseleave = hideTip;
+    const t = DATA.targets.find(d => d.company === x.name);
+    if (t) { r.style.cursor = "pointer"; r.onclick = () => select(t.company); }
+  });
+}
+
 function render() {
   const rows = filtered();
   $("#count").textContent = `${rows.length} of ${DATA.targets.length} shown`;
-  kpis(rows); scatter(rows); sizeBars(rows); setupBars(rows); table(rows); detail();
+  kpis(rows); scatter(rows); sizeBars(rows); setupBars(rows); buyerBars(); table(rows); detail();
 }
 render();
 </script>
