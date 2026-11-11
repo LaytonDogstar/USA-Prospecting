@@ -213,3 +213,23 @@ def test_research_stops_at_budget(store, targets_file):
     run = store.s.scalar(select(m.JobRun).where(m.JobRun.job == "research"))
     assert run.status == "budget_stopped" and "budget reached" in run.errors[0]["message"]
     assert out["organisations"] == 0
+
+
+def test_repeated_identical_error_stops_the_batch(store, targets_file):
+    import_targets(store, targets_file)
+
+    class Broken:
+        def __init__(self):
+            self.calls = 0
+            self.beta = NS(messages=NS(create=self.create))
+
+        def create(self, **kw):
+            self.calls += 1
+            raise RuntimeError("Your credit balance is too low")
+    broken = Broken()
+    ids = list(store.s.scalars(select(m.Organisation.id).where(m.Organisation.legal_name.is_not(None)).limit(5)))
+    assert len(ids) == 5
+    out = research_batch(store, org_ids=ids, client=broken)
+    assert out["errors"] == 3 and broken.calls == 3
+    run = store.s.scalar(select(m.JobRun).where(m.JobRun.job == "research"))
+    assert "Stopped: the same error happened 3 times" in run.errors[-1]["message"]

@@ -10,6 +10,7 @@ Rules built in:
 - The Anthropic budget is checked before each organisation and actual cost is recorded from the usage block.
 """
 import json
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -23,7 +24,9 @@ from .jobs import job
 from .normalise import norm_domain
 from .store import Store
 
+log = logging.getLogger("ecosystem.research")
 DEFAULT_MODEL = os.environ.get("RESEARCH_MODEL", "claude-sonnet-5-5")
+STOP_AFTER_SAME_ERROR = 3  # a failure repeating for every company (bad key, no credit) stops the batch early
 # USD per million tokens (input, output); cache writes 1.25x input, cache reads 0.1x input. Web search $10 / 1,000.
 PRICES = {"claude-sonnet-5-5": (2.0, 10.0), "claude-opus-5-5": (4.0, 20.0), "claude-haiku-5-5": (0.10, 0.50)}
 WEB_SEARCH_USD = 0.01
@@ -239,15 +242,25 @@ def research_batch(store: Store, n: int = 20, client=None, model: str = DEFAULT_
             import anthropic
             client = anthropic.Anthropic()
         orgs = [s.get(m.Organisation, i) for i in org_ids] if org_ids else pilot_targets(s, n)
+        last_error, repeats = None, 0
         for org in orgs:
             try:
                 res = research_org(store, org, client, model, ctx.run.id)
             except budget.BudgetExceeded:
                 raise
-            except Exception as e:  # one company failing doesn't stop the batch
-                ctx.error(f"{org.display_name}: {type(e).__name__}: {e}", org_id=org.id)
+            except Exception as e:  # one company failing doesn't stop the batch...
+                msg = f"{type(e).__name__}: {e}"
+                log.error("research failed for org %s: %s", org.id, msg[:500])
+                ctx.error(f"{org.display_name}: {msg}", org_id=org.id)
                 out["errors"] += 1
+                repeats = repeats + 1 if msg == last_error else 1
+                last_error = msg
+                if repeats >= STOP_AFTER_SAME_ERROR:  # ...but the same failure every time means stop and fix it
+                    ctx.error(f"Stopped: the same error happened {repeats} times in a row. Fix it, then run again.")
+                    log.error("research batch stopped after %s identical errors", repeats)
+                    break
                 continue
+            last_error, repeats = None, 0
             write_findings(store, org, res, model, ctx.run.id)
             out["organisations"] += 1
             out["facts_proposed"] += len(res["findings"])

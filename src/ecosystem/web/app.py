@@ -25,6 +25,8 @@ def _secret_key() -> str:
 
 
 def create_app() -> FastAPI:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     production = os.environ.get("ECOSYSTEM_ENV") == "production"
     app = FastAPI(title="Ecosystem", docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(SessionMiddleware, secret_key=_secret_key(), session_cookie="eco_session",
