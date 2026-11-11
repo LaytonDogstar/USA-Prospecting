@@ -58,7 +58,11 @@ def bootstrap_admin() -> str:
             return "users already exist; nothing to do"
         if not name or not pw:
             return "no users yet: set ADMIN_USERNAME and ADMIN_PASSWORD, or run create-user"
-        create_user(s, name, pw, "admin")
+        try:
+            create_user(s, name, pw, "admin")
+        except ValueError as e:
+            # Never stop the app from starting over a bad bootstrap value; say what to fix instead.
+            return f"admin NOT created: {e}. Fix ADMIN_USERNAME / ADMIN_PASSWORD in the service variables."
         return f"created admin {name.lower()}"
 
 
