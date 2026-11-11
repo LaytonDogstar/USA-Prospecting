@@ -9,7 +9,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ... import models as m
+from ... import models as m, scheduler
 from ...auth import _ph, MIN_PASSWORD_LENGTH, create_user
 from ...config import RAW_DIR, REFERENCE_DIR
 from ...scoring import DEFAULT_WEIGHTS, current_weights, rescore, save_weights
@@ -273,13 +273,10 @@ def _session_factory():
 
 def _run_job(name: str, actor: str, kwargs: dict) -> None:
     """Runs after the response (FastAPI background task) in its own session; the run is logged in job_run."""
-    from ... import enrich, research
+    from ...scheduler import run_job
     s = _session_factory()()
     try:
-        st = Store(s, actor=actor)
-        fn = {"ahrefs_fill_traffic": enrich.fill_traffic, "ahrefs_serp_snapshot": enrich.serp_snapshot,
-              "research": research.research_batch}[name]
-        fn(st, **kwargs)
+        run_job(s, name, actor, kwargs)
         s.commit()
     except Exception:
         s.commit()  # keep the failed run's log and anything already paid for
@@ -298,7 +295,55 @@ def research_page(request: Request, db: Session = Depends(get_db), user=Depends(
                   keywords=kws, keys={"anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
                                       "ahrefs": bool(os.environ.get("AHREFS_API_KEY"))},
                   models=list(PRICES), default_model=DEFAULT_MODEL,
-                  running={r.job for r in runs if r.status == "running"}, ahrefs_plan=request.session.pop("ahrefs_plan", None))
+                  running={r.job for r in runs if r.status == "running"}, ahrefs_plan=request.session.pop("ahrefs_plan", None),
+                  schedules=scheduler.ensure_defaults(db), schedule_defaults=scheduler.DEFAULTS,
+                  scheduler_on=scheduler.enabled_by_env(),
+                  env_keys={k: bool(os.environ.get(k)) for k in ("ANTHROPIC_API_KEY", "AHREFS_API_KEY")})
+
+
+def _run_schedule_now(job: str, actor: str) -> None:
+    s = _session_factory()()
+    try:
+        scheduler.run_schedule(s, s.get(m.JobSchedule, job), actor=actor)
+        s.commit()
+    except Exception:
+        s.commit()
+    finally:
+        s.close()
+
+
+@router.post("/research/schedule")
+async def research_schedule(request: Request, background: BackgroundTasks, db: Session = Depends(get_db),
+                            user=Depends(admin_user)):
+    form = await request.form()
+    job = form.get("job")
+    if job not in scheduler.DEFAULTS:
+        raise HTTPException(400, "Unknown job")
+    sc = next(x for x in scheduler.ensure_defaults(db) if x.job == job)
+    before = {"enabled": sc.enabled, "every_hours": sc.every_hours, "params": sc.params}
+    try:
+        hours = int(form.get("every_hours") or sc.every_hours)
+        params = scheduler.clean_params(job, {k[2:]: v for k, v in form.items() if k.startswith("p_") and v})
+    except ValueError:
+        flash(request, "Batch size and interval must be whole numbers.")
+        return RedirectResponse("/admin/research#schedules", status_code=303)
+    turning_on = bool(form.get("enabled")) and not sc.enabled
+    sc.enabled, sc.every_hours, sc.params = bool(form.get("enabled")), max(1, min(hours, 720)), params
+    sc.updated_by, sc.updated_at = user.username, scheduler.now()
+    if turning_on and sc.next_run_at is None:
+        sc.next_run_at = scheduler.now()
+    st = store_for(db, user)
+    st.audit("schedule.update", "job_schedule", None, before, {"job": job, "enabled": sc.enabled,
+                                                               "every_hours": sc.every_hours, "params": sc.params})
+    label = scheduler.DEFAULTS[job][0]
+    if form.get("action") == "run":
+        st.audit("job.start", "job_run", None, None, {"job": job, "via": "schedule run now", **params})
+        db.commit()
+        background.add_task(_run_schedule_now, job, user.username)
+        flash(request, f"Started: {label}. Reload to follow it in Recent runs.")
+    else:
+        flash(request, f"{label}: {'on, every ' + str(sc.every_hours) + ' hours' if sc.enabled else 'off'}.")
+    return RedirectResponse("/admin/research#schedules", status_code=303)
 
 
 @router.post("/research/budget")

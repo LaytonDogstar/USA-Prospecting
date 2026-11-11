@@ -52,6 +52,11 @@ src/ecosystem/
   research.py    research pass with Claude (web_search/web_fetch + strict record_findings tool). Findings must cite
                  a URL from the run's own search/fetch results or they are dropped; kept findings are *proposed*
                  claims plus one 'research' review item; apply_research / reject_research on the decision
+  decisions.py   decide() = the one place a review item is acted on (single and bulk); suggest() = rule-based
+                 suggested decision per item, `safe` ones can be applied in bulk by an admin (/review/bulk)
+  scheduler.py   job_schedule: research / Ahrefs traffic / SERP / upkeep run by themselves when an admin turns
+                 them on; background thread every 5 min, Postgres advisory lock so one instance runs them.
+                 On in production (or ECOSYSTEM_SCHEDULER=on); off in tests and local dev
   cli.py         python -m ecosystem <command>
   web/           FastAPI app (server-rendered Jinja, no front-end build)
     app.py       create_app(): sessions, security headers, routers
@@ -66,7 +71,7 @@ src/ecosystem/
     static/      style.css (light/dark tokens), app.js (evidence drawer, confirm prompts), map.js (Cytoscape
                  map; text inserted with textContent only), vendor/ (Cytoscape.js 3.30.4, MIT, served locally
                  because the CSP only allows same-origin scripts)
-migrations/      Alembic. 0001 = initial schema + entity_current view; 0002 = latest_score view; 0003 = provider_budget
+migrations/      Alembic. 0001 = initial schema + entity_current view; 0002 = latest_score view; 0003 = provider_budget; 0004 = job_schedule
 tests/ecosystem/ pytest; conftest builds made-up workbooks. test_acceptance_real_data.py runs only
                  when the real files and data/reference/acceptance.json are present.
 ```
@@ -81,7 +86,7 @@ Scoring rules: components score 0-100. A component nobody has data for yet (stat
 
 Web rules: every page needs a session except `/login`, `/healthz`, `/static`. Viewers read; admins edit. Every POST goes through `admin_user` (role + CSRF). Every edit writes `audit_log`. Merges and links only happen from a review decision.
 
-Key tables: `entity` (shared id space) → `organisation`, `brand`, `domain`, `person`, `page`; `name_alias`; `org_role`; `entity_state`; `relationship` (edges); `our_relationship` (+history); `source`, `claim`, `claim_source`; `entity_current` (view: latest accepted claim per attribute); `metric_snapshot`; `compliance_flag`, `compliance_status`; `score`, `weights_version`; `review_item`; `audit_log`; `app_user`; `job_run`, `api_usage`, `http_cache` (Stage 2).
+Key tables: `job_schedule`; `entity` (shared id space) → `organisation`, `brand`, `domain`, `person`, `page`; `name_alias`; `org_role`; `entity_state`; `relationship` (edges); `our_relationship` (+history); `source`, `claim`, `claim_source`; `entity_current` (view: latest accepted claim per attribute); `metric_snapshot`; `compliance_flag`, `compliance_status`; `score`, `weights_version`; `review_item`; `audit_log`; `app_user`; `job_run`, `api_usage`, `http_cache` (Stage 2).
 
 Projection rows (`brand`, `domain`, `org_role`, `entity_state`, `relationship`) carry `claim_ids` and spreadsheet sources carry `sheet` + `row_number`. That is the "field → claim → source" trail the UI's evidence drawer uses.
 

@@ -429,6 +429,21 @@ class ProviderBudget(Base):
     updated_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
 
 
+class JobSchedule(Base):
+    """A job that runs by itself every `every_hours`, within the provider budgets. Off until an admin turns it on."""
+    __tablename__ = "job_schedule"
+    job: Mapped[str] = mapped_column(String(40), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(default=False)
+    every_hours: Mapped[int] = mapped_column(Integer, default=24)
+    params: Mapped[dict] = mapped_column(JSONB, default=dict)
+    next_run_at: Mapped[datetime | None] = mapped_column(TS)
+    last_run_at: Mapped[datetime | None] = mapped_column(TS)
+    last_status: Mapped[str | None] = mapped_column(Text)
+    last_run_id: Mapped[int | None] = mapped_column(BigInteger)
+    updated_by: Mapped[str] = mapped_column(Text, default="system")
+    updated_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+
 class HttpCache(Base):
     __tablename__ = "http_cache"
     request_key: Mapped[str] = mapped_column(String(64), primary_key=True)

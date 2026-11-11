@@ -296,3 +296,24 @@ def test_admin_research_page(web, session, monkeypatch):
     web.post("/logout", data={"csrf": csrf(web)})
     login(web, "reader", "viewer-password-1")
     assert web.get("/admin/research").status_code == 403
+
+
+def test_review_bulk_and_schedule_forms(web, session):
+    login(web)
+    r = web.get("/review?kind=possible_match")
+    assert r.status_code == 200
+    r = web.post("/review/bulk", data={"kind": "dedup", "csrf": csrf(web, "/review")}, follow_redirects=True)
+    assert r.status_code == 200 and "suggested decisions" in r.text
+    page = web.get("/admin/research")
+    assert "Schedules" in page.text and "Upkeep" in page.text
+    r = web.post("/admin/research/schedule", data={"job": "upkeep", "enabled": "1", "every_hours": "24",
+                                                    "action": "save", "csrf": csrf(web, "/admin/research")}, follow_redirects=False)
+    assert r.status_code == 303
+    session.expire_all()
+    from ecosystem import models as m
+    sc = session.get(m.JobSchedule, "upkeep")
+    assert sc.enabled and sc.next_run_at is not None
+    r = web.post("/admin/research/schedule", data={"job": "research", "every_hours": "24", "p_n": "9999",
+                                                    "action": "save", "csrf": csrf(web, "/admin/research")})
+    session.expire_all()
+    assert session.get(m.JobSchedule, "research").params == {"n": 200}

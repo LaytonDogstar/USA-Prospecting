@@ -7,6 +7,7 @@ from sqlalchemy import case, func, select, text
 from sqlalchemy.orm import Session
 
 from ... import models as m
+from ...decisions import DecisionError, apply_safe, decide as decide_item, suggest, summaries
 from ..deps import admin_user, current_user, flash, get_db, render, store_for
 from .home import REVIEW_LABELS
 
@@ -15,20 +16,7 @@ PAGE = 50
 
 
 def _summaries(db: Session, ids: set[int]) -> dict:
-    if not ids:
-        return {}
-    rows = db.execute(text("""
-        SELECT o.id, o.display_name, o.lifecycle, o.kind, o.merged_into_id, p.display_name AS parent,
-               (SELECT string_agg(hostname, ', ' ORDER BY hostname) FROM domain d WHERE d.organisation_id = o.id) AS domains,
-               (SELECT string_agg(DISTINCT role, ', ') FROM org_role r WHERE r.organisation_id = o.id) AS roles,
-               ours.status AS our_status, ours.role AS our_role,
-               (SELECT string_agg(DISTINCT c.value #>> '{}', ', ') FROM claim c WHERE c.entity_id = o.id
-                  AND c.attribute = 'cfpb_company_name') AS cfpb_name,
-               (SELECT count(*) FROM claim c WHERE c.entity_id = o.id) AS facts
-        FROM organisation o LEFT JOIN organisation p ON p.id = o.parent_id
-        LEFT JOIN our_relationship ours ON ours.organisation_id = o.id
-        WHERE o.id = ANY(:ids)"""), {"ids": list(ids)})
-    return {r.id: r for r in rows}
+    return summaries(db, ids)
 
 
 @router.get("/review")
@@ -53,8 +41,16 @@ def inbox(request: Request, kind: str = "", status: str = "open", page: int = 1,
                 (c, db.get(m.Source, c.source_id)) for c in db.scalars(select(m.Claim).where(
                     m.Claim.entity_id == it.entity_ids[0], m.Claim.job_run_id == it.payload.get("run"),
                     m.Claim.method.like("research:%")).order_by(m.Claim.attribute, m.Claim.id))]
+    st = store_for(db, user)
+    suggestions = {it.id: suggest(st, it, summaries) for it in items} if status == "open" else {}
+    safe_on_tab = 0
+    if status == "open":  # one summaries query for the whole tab, not one per item
+        tab = list(db.scalars(select(m.ReviewItem).where(m.ReviewItem.kind == kind, m.ReviewItem.status == "open")))
+        tab_summ = _summaries(db, {i for it in tab for i in it.entity_ids})
+        safe_on_tab = sum(1 for it in tab if (sug := suggest(st, it, tab_summ)) and sug["safe"])
     return render(request, "review.html", user, items=items, kind=kind, status=status, counts=counts, labels=REVIEW_LABELS,
-                  summaries=summaries, proposed=proposed, total=total, page=page, pages=(total - 1) // PAGE + 1 if total else 1)
+                  summaries=summaries, proposed=proposed, total=total, page=page, suggestions=suggestions,
+                  safe_on_tab=safe_on_tab, pages=(total - 1) // PAGE + 1 if total else 1)
 
 
 @router.post("/review/{item_id}/decide")
@@ -63,62 +59,21 @@ def decide(item_id: int, request: Request, action: str = Form(...), note: str = 
     it = db.get(m.ReviewItem, item_id)
     if it is None or it.status != "open":
         raise HTTPException(404, "No open review item with that id")
-    st = store_for(db, user)
-    ids = list(it.entity_ids)
-    done = ""
-    if action.startswith("merge:"):
-        keep = int(action.split(":")[1])
-        if keep not in ids:
-            raise HTTPException(400, "Merge target must be one of the item's organisations")
-        for other in ids:
-            if other != keep:
-                st.merge(keep, other, note=f"review #{it.id}: {note}")
-        it.status, done = "approved", f"Merged into {db.get(m.Organisation, keep).display_name}."
-    elif action.startswith("link:"):
-        parent, child = (int(x) for x in action.split(":")[1:3])
-        if {parent, child} - set(ids):
-            raise HTTPException(400, "Link must be between the item's organisations")
-        src = m.Source(source_type="manual", title=f"Review #{it.id} decided by {user.username}",
-                       retrieved_at=datetime.now(timezone.utc))
-        db.add(src)
-        db.flush()
-        pname = st.org(parent).display_name
-        c = st.claim(child, "owner_group", {"group": pname, "relation": "owns", "note": note or None}, src,
-                     confidence="high", method=f"review:{user.username}")
-        st.edge(st.org(parent).id, st.org(child).id, "owns", "confirmed", c)
-        child_org = st.org(child)
-        if child_org.parent_id is None:
-            child_org.parent_id = st.org(parent).id
-        st.audit("organisation.link", "organisation", child_org.id, None, {"parent": pname, "note": note})
-        it.status, done = "approved", f"Linked: {pname} owns {child_org.display_name}."
-    elif action == "approve" and it.kind == "research":
-        from ...matching import possible_match_sweep, shared_key_suggestions
-        from ...research import apply_research
-        from ...scoring import rescore
-        n = apply_research(st, it)
-        only = set(it.entity_ids)
-        shared_key_suggestions(st)
-        possible_match_sweep(st, only=only)   # just this company, not the whole map
-        rescore(st, org_ids=only, audit=False)
-        it.status, done = "approved", f"Accepted {n} researched facts and re-scored."
-    elif action == "screen" and it.kind == "research":
-        from ...research import apply_research, screen_out
-        from ...scoring import rescore
-        n = apply_research(st, it)
-        org = st.org(it.entity_ids[0])
-        screen_out(st, org, note.strip() or (it.payload.get("summary") or "Not a US consumer lender (research)")[:300])
-        it.status, done = "approved", f"Accepted {n} facts and screened out {org.display_name}."
-    elif action == "reject" and it.kind == "research":
-        from ...research import reject_research
-        n = reject_research(st, it)
-        it.status, done = "rejected", f"Rejected {n} researched facts."
-    elif action == "approve":
-        it.status, done = "approved", "Approved."
-    elif action == "reject":
-        it.status, done = "rejected", "Rejected."
-    else:
-        raise HTTPException(400, "Unknown action")
-    it.decided_by, it.decided_at, it.note = user.username, datetime.now(timezone.utc), note.strip() or None
-    st.audit(f"review.{it.status}", "review_item", it.id, None, {"action": action, "note": note, "title": it.title})
+    try:
+        done = decide_item(store_for(db, user), it, action, note)
+    except DecisionError as e:
+        raise HTTPException(400, str(e))
     flash(request, f"#{it.id}: {done}")
     return RedirectResponse(f"/review?kind={it.kind}", status_code=303)
+
+
+@router.post("/review/bulk")
+def bulk(request: Request, kind: str = Form(...), db: Session = Depends(get_db), user=Depends(admin_user)):
+    if kind not in REVIEW_LABELS:
+        raise HTTPException(400, "Unknown tab")
+    out = apply_safe(store_for(db, user), kind)
+    msg = f"Applied {out['applied']} suggested decisions; {out['left_for_you']} left for you to decide."
+    if out["errors"]:
+        msg += f" {len(out['errors'])} couldn't be applied: {'; '.join(out['errors'][:3])}"
+    flash(request, msg)
+    return RedirectResponse(f"/review?kind={kind}", status_code=303)

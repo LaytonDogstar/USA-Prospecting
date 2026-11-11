@@ -69,6 +69,24 @@
   </div>
 </section>
 
+<section class="panel" style="margin-top:16px" id="schedules">
+  <h2>Schedules <span class="small muted">{{ 'checked every 5 minutes' if scheduler_on else 'the scheduler is off on this server' }}</span></h2>
+  <p class="small">Each schedule runs the same job as the buttons above, by itself, within the monthly budgets. All start switched off. Results still land in Review for you to decide: a schedule never accepts anything.</p>
+  <table class="compact"><thead><tr><th>Job</th><th>On</th><th>Every</th><th>Batch</th><th>Last run</th><th>Next run</th><th></th></tr></thead><tbody>
+  {% for sc in schedules %}{% set d = schedule_defaults[sc.job] %}
+  <tr><form method="post" action="/admin/research/schedule">{{ csrf_field(csrf) }}<input type="hidden" name="job" value="{{ sc.job }}">
+    <td class="small">{{ d[0] }}{% if d[3] and not env_keys.get(d[3]) %}<div class="muted">needs {{ d[3] }}</div>{% endif %}</td>
+    <td><input type="checkbox" name="enabled" value="1" {{ 'checked' if sc.enabled }} aria-label="Switch on"></td>
+    <td><select name="every_hours">{% for h, lbl in ((6, '6 hours'), (12, '12 hours'), (24, 'day'), (72, '3 days'), (168, 'week'), (720, '30 days')) %}<option value="{{ h }}" {{ 'selected' if sc.every_hours == h }}>{{ lbl }}</option>{% endfor %}</select></td>
+    <td>{% for k, v in (sc.params or {}).items() %}<input name="p_{{ k }}" value="{{ v }}" size="4" inputmode="numeric" aria-label="{{ k }}">{% else %}<span class="muted small">all</span>{% endfor %}</td>
+    <td class="small">{% if sc.last_run_at %}{{ sc.last_run_at.strftime('%d %b %H:%M') }} · {{ sc.last_status }}{% else %}<span class="muted">never</span>{% endif %}</td>
+    <td class="small">{% if sc.enabled %}{{ sc.next_run_at.strftime('%d %b %H:%M') if sc.next_run_at else 'within 5 minutes' }}{% else %}<span class="muted">off</span>{% endif %}</td>
+    <td style="white-space:nowrap"><button name="action" value="save">Save</button> <button name="action" value="run" {{ 'disabled' if sc.job in running }}>Run now</button></td>
+  </form></tr>{% endfor %}
+  </tbody></table>
+  <p class="small muted">Times are UTC. Suggested start: upkeep daily, research 40 a day (about $5), traffic 100 a day, search snapshot weekly.</p>
+</section>
+
 <div class="grid g2" style="margin-top:16px">
 <section class="panel" id="keywords">
   <h2>Tracked keywords <span class="small muted">{{ keywords | selectattr('active') | list | length }} active</span></h2>

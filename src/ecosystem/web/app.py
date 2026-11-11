@@ -61,4 +61,12 @@ def create_app() -> FastAPI:
     from .routes import admin, auth, entity, home, maps, review, tables
     for module in (auth, home, tables, maps, entity, review, admin):
         app.include_router(module.router)
+
+    from .. import scheduler
+    if scheduler.enabled_by_env():
+        @app.on_event("startup")
+        def _start_scheduler():
+            from sqlalchemy.orm import sessionmaker
+            from ..db import engine
+            scheduler.start(sessionmaker(bind=engine(), future=True))
     return app

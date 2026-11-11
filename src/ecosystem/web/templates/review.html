@@ -14,6 +14,12 @@
   <a href="/review?kind={{ kind }}&status=done" class="{{ 'on' if status != 'open' }}">Decided</a>
 </div>
 {% if not admin %}<p class="warnbox small">You can read the inbox. Only admins can decide items.</p>{% endif %}
+{% if admin and status == 'open' and safe_on_tab %}
+<form method="post" action="/review/bulk" class="row panel" style="margin-bottom:14px" data-confirm="Apply the suggested decision to {{ safe_on_tab }} items on this tab?">{{ csrf_field(csrf) }}
+  <input type="hidden" name="kind" value="{{ kind }}">
+  <span><b>{{ safe_on_tab }}</b> item{{ 's' if safe_on_tab != 1 }} on this tab have a safe suggestion (marked <span class="chip good">safe</span>). The rest need your judgement.</span>
+  <button class="primary">Apply {{ safe_on_tab }} safe suggestion{{ 's' if safe_on_tab != 1 }}</button>
+</form>{% endif %}
 
 {% macro side(o) %}
   {% if o %}
@@ -61,11 +67,15 @@
   {% if ids | length == 2 %}<div class="pair">{{ side(summaries.get(ids[0])) }}{{ side(summaries.get(ids[1])) }}</div>
   {% elif ids %}<div class="pair">{{ side(summaries.get(ids[0])) }}</div>{% endif %}
 
+  {% set sug = suggestions.get(it.id) %}
+  {% if sug and it.status == 'open' %}<p class="small"><b>Suggested:</b> {{ sug.label }} <span class="muted">({{ sug.why }})</span>
+    {% if sug.safe %}<span class="chip good">safe</span>{% else %}<span class="chip">check first</span>{% endif %}</p>{% endif %}
   {% if it.status != 'open' %}
     <p class="small">{{ it.status }} by {{ it.decided_by }} on {{ it.decided_at.strftime('%d %b %Y') }}{% if it.note %}: {{ it.note }}{% endif %}</p>
   {% elif admin %}
   <form method="post" action="/review/{{ it.id }}/decide" class="row">{{ csrf_field(csrf) }}
     <input name="note" placeholder="Note (why)" size="30">
+    {% if sug %}<button name="action" value="{{ sug.action }}" class="primary" title="{{ sug.why }}">Apply suggestion</button>{% endif %}
     {% if it.kind in ('possible_match', 'dedup') and ids | length == 2 %}
       {% set a, b = summaries.get(ids[0]), summaries.get(ids[1]) %}
       {% if a and b %}
