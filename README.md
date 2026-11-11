@@ -1,5 +1,7 @@
 # US Partner Prospecting Tool
 
+> **New: the Ecosystem industry map** (`src/ecosystem/`, Postgres) is the main build now. See `CLAUDE.md` for how to run it and `docs/PLAN.md` for the plan. The SQLite tool described below is kept running until the new app replaces it.
+
 Profiles Dogstar's existing US lead buyers, works out what makes a buyer valuable, and (in later steps) finds and prioritises lookalike lenders to approach. The tool prepares lists; people do the outreach.
 
 ## Status

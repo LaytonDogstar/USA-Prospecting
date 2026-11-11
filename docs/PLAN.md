@@ -1,6 +1,12 @@
 # Phase 0 plan: US Lead-Gen Industry Map ("Ecosystem")
 
-Status: **for approval. No app code has been written.**
+Status: **approved 11 Nov 2026, with the decisions below.** Phase 1 (import and model) is built; see `CLAUDE.md`.
+
+### Decisions (11 Nov 2026)
+- **Blue Oak Credit / ServiceFintech is an existing client** (live), not in talks.
+- **The 54 "existing client" names in the Lead-buying strength sheet are seeded as live, flagged "needs confirmation".** So are the brief's 9 seeds. The CFPB companies the Universe sheet matched to those buyers by hand get a `possible_match` review item, not a relationship.
+- **Stack: Python (FastAPI + HTMX) as proposed.**
+- **Login: username and password for now** (argon2 hashes, lockout after 5 failed attempts, admin/viewer roles). Google SSO can replace it later. This supersedes the SSO lines in §2, §9 and Q10–Q11.
 Date: 11 Nov 2026. Based on the build brief, both spreadsheets and the existing code in this repo.
 
 ---

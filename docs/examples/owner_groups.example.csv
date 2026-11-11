@@ -1,0 +1,3 @@
+group,member,relation,status,note,group_kind
+Example Ventures,Example Loans,owns,inferred,Where the evidence came from,operator_group
+Example Media,Example News Site,places_sponsored_content_on,rumoured,Where the evidence came from,operator_group
