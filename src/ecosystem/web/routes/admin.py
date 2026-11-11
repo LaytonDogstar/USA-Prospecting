@@ -138,7 +138,10 @@ def imports_page(request: Request, db: Session = Depends(get_db), user=Depends(a
     files = list(db.scalars(select(m.ImportFile).order_by(m.ImportFile.imported_at.desc())))
     on_disk = sorted(p.name for d in (RAW_DIR, REFERENCE_DIR) if d.exists() for p in d.iterdir()
                      if any(pat.match(p.name) for pat, _ in UPLOAD_RULES))
+    from ...reconcile import report
+    last_reset = db.scalar(select(m.AuditLog).where(m.AuditLog.action == "data.reset").order_by(m.AuditLog.at.desc()))
     return render(request, "admin_imports.html", user, files=files, section="imports", on_disk=on_disk,
+                  check=report(db), last_reset=last_reset,
                   patterns=["targets_YYYYMMDD.xlsx", "CLE_…traffic_options….xlsx", "owner_groups.csv",
                             "our_relationships_seed.csv"])
 

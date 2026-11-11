@@ -24,6 +24,22 @@
 </section>
 </div>
 
+<section class="panel" style="margin-top:16px" id="check">
+  <h2>Check <span class="small muted">what is in the database now</span></h2>
+  <p class="small">{% if last_reset %}Last reset {{ last_reset.at.strftime('%d %b %Y %H:%M') }} UTC by {{ last_reset.actor }}.{% else %}Never reset.{% endif %}
+    {% if files %} Files imported in this order: {% for f in files | reverse %}{{ f.file_name }}{{ ' → ' if not loop.last }}{% endfor %}.{% endif %}</p>
+  <div class="grid g3">
+    <div><h3>Rows imported per sheet</h3><table class="compact"><tbody>
+      {% for k, v in check.rows_imported_per_sheet.items() %}<tr><td>{{ k }}</td><td class="num">{{ v }}</td></tr>{% else %}<tr><td class="muted">none</td></tr>{% endfor %}</tbody></table></div>
+    <div><h3>Review inbox (open)</h3><table class="compact"><tbody>
+      {% for k, v in check.open_review_items.items() %}<tr><td>{{ k | replace('_', ' ') }}</td><td class="num">{{ v }}</td></tr>{% else %}<tr><td class="muted">empty</td></tr>{% endfor %}</tbody></table></div>
+    <div><h3>Organisations and relationships</h3><table class="compact"><tbody>
+      {% for k, v in check.organisations_by_lifecycle.items() %}<tr><td>{{ k | replace('_', ' ') }}</td><td class="num">{{ v }}</td></tr>{% endfor %}
+      {% for k, v in check.our_relationships_by_status.items() %}<tr><td>our relationships: {{ k | replace('_', ' ') }}</td><td class="num">{{ v }}</td></tr>{% endfor %}
+      <tr><td>claims</td><td class="num">{{ '{:,}'.format(check.claims) }}</td></tr></tbody></table></div>
+  </div>
+</section>
+
 <section class="panel" style="margin-top:16px">
   <h2>Start again</h2>
   <p>Clears everything built from the imports, then re-imports the files already uploaded, in the right order

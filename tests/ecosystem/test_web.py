@@ -235,4 +235,5 @@ def test_reset_needs_typed_confirmation(web, session):
     assert "type RESET in capitals" in r.text
     session.expire_all()
     assert session.scalar(select(func.count()).select_from(m.Organisation)) == before
-    assert "Start again" in web.get("/admin/imports").text
+    page = web.get("/admin/imports").text
+    assert "Start again" in page and "Rows imported per sheet" in page and "Never reset." in page
