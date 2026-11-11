@@ -13,6 +13,7 @@ from collections import defaultdict
 from sqlalchemy import text
 
 from .footprint import lender_footprints, serves
+from .normalise import friendly_name
 from .scoring import LENDER_ROLES, SUPPLY_ROLES
 
 LAYERS = ["Traffic sources", "Connectors and lead brands", "Pingtrees and networks", "Lenders",
@@ -58,7 +59,11 @@ def _load(db):
                (SELECT max(value) FROM metric_snapshot WHERE entity_id = o.id AND metric = 'ahrefs_organic_visits') AS organic,
                ours.status AS our_status, ours.role AS our_role, ours.needs_confirmation,
                cs.value AS compliance,
-               (SELECT count(*) FROM compliance_flag f WHERE f.entity_id = o.id) AS flags
+               (SELECT count(*) FROM compliance_flag f WHERE f.entity_id = o.id) AS flags,
+               (SELECT b.name FROM brand b LEFT JOIN domain d ON d.brand_id = b.id
+                 WHERE b.organisation_id = o.id ORDER BY d.is_primary IS TRUE DESC, b.id LIMIT 1) AS brand,
+               EXISTS (SELECT 1 FROM review_item ri WHERE ri.status = 'open' AND ri.kind = 'possible_match'
+                       AND o.id = ANY(ri.entity_ids)) AS pending_match
         FROM organisation o
         LEFT JOIN latest_score bv ON bv.entity_id = o.id AND bv.score_type = 'buyer_value'
         LEFT JOIN latest_score sv ON sv.entity_id = o.id AND sv.score_type = 'supply_value'
@@ -71,6 +76,7 @@ def _load(db):
         d["states"] = set(d["states"])
         for k in ("buyer_value", "supply_value", "complaints", "organic"):
             d[k] = float(d[k]) if d[k] is not None else None
+        d["name"] = friendly_name(d["display_name"], d["brand"])
         orgs[d["id"]] = d
     edges = [dict(r._mapping) for r in db.execute(text(
         "SELECT id, from_id, to_id, type, status, claim_ids FROM relationship"))]
@@ -198,9 +204,11 @@ def build_graph(db, f: dict | None = None, expand: set[int] | None = None) -> di
         o = orgs[i]
         g = group_of(i)
         nodes[nid] = {
-            "id": nid, "org_id": i, "label": o["display_name"], "kind": "org", "layer": o["layer"],
+            "id": nid, "org_id": i, "label": o["name"], "kind": "org", "layer": o["layer"],
             "size": size(o), "our": o["our_status"], "our_role": o["our_role"], "unconfirmed": bool(o["needs_confirmation"]),
             "compliance": o["compliance"] or ("flags" if o["flags"] else None), "score": o["score"],
+            "legal": o["display_name"] if o["name"] != o["display_name"] else None,
+            "pending_match": bool(o["pending_match"]) and not o["our_status"],
             "tier": o["tier"], "url": f"/org/{i}", **({"parent": f"x{g}"} if g in expand and g is not None else {}),
             **({"group": orgs[g]["display_name"]} if g is not None else {}),
         }
@@ -210,8 +218,10 @@ def build_graph(db, f: dict | None = None, expand: set[int] | None = None) -> di
         if g not in folded and g not in expand:
             continue  # a group of one: its member is drawn as itself
         if g in expand:
-            nodes[f"x{g}"] = {"id": f"x{g}", "org_id": g, "label": f"{orgs[g]['display_name']} group", "kind": "group_open",
-                              "count": len(group_members), "url": f"/org/{g}", "layer": None}
+            nodes[f"x{g}"] = {"id": f"x{g}", "org_id": g, "label": f"{orgs[g]['name']} group", "kind": "group_open",
+                              "count": len(group_members), "brands": len(all_members.get(g, set())),
+                              "owner_listed": g in candidates, "url": f"/org/{g}", "layer": None,
+                              "layer_hint": max(set(lay := [orgs[x]["layer"] for x in ms]), key=lay.count)}
             if g in visible:  # the group company itself sits inside its own box
                 nodes[f"o{g}"]["parent"] = f"x{g}"
             continue
@@ -220,8 +230,10 @@ def build_graph(db, f: dict | None = None, expand: set[int] | None = None) -> di
         statuses = [x["our_status"] for x in ms_o if x["our_status"]]
         comps = [x["compliance"] for x in ms_o if x["compliance"]]
         nodes[f"g{g}"] = {
-            "id": f"g{g}", "org_id": g, "label": f"{orgs[g]['display_name']} ({total})", "kind": "group",
+            "id": f"g{g}", "org_id": g, "label": f"{orgs[g]['name']} ({total})", "kind": "group",
             "layer": max(set(layers), key=layers.count), "count": total,
+            "brands": len(all_members.get(g, set())), "owner_listed": g in candidates,
+            "members": sorted(orgs[x]["name"] for x in all_members.get(g, set()) | ({g} if g in candidates else set())),
             "size": round(min(70, max(size(x) for x in ms_o) + 4 * math.log2(1 + len(group_members))), 1),
             "our": min(statuses, key=lambda s: rank.get(s, 9)) if statuses else None,
             "compliance": "blocked" if "blocked" in comps else "review" if "review" in comps else
@@ -291,13 +303,16 @@ def build_graph(db, f: dict | None = None, expand: set[int] | None = None) -> di
                 n["x"], n["y"] = x0 + (c_total + c) * SUBCOLUMN_WIDTH, 40 + r * ROW_HEIGHT
             if block:
                 c_total += math.ceil(len(block) / COLUMN_HEIGHT)
-        c_total = max(c_total, 1)
-        header_x[layer] = start + (c_total - 1) * SUBCOLUMN_WIDTH / 2
+        if not col:
+            header_x[layer] = None  # nothing in this layer: no floating header
+            continue
+        header_x[layer] = start  # headers sit at the start of their layer, left-aligned
         x0 += c_total * SUBCOLUMN_WIDTH + LAYER_GAP
 
     return {
         "nodes": list(nodes.values()), "edges": list(agg.values()), "layers": LAYERS,
         "layer_x": [header_x[i] for i in range(len(LAYERS))],
         "stats": {"organisations": len(visible), "nodes": len(nodes), "edges": len(agg), "view": view,
-                  "truncated": truncated, "candidates": len(candidates)},
+                  "truncated": truncated, "candidates": len(candidates),
+                  "open_groups": [{"org_id": g, "label": orgs[g]["name"]} for g in sorted(expand) if g in orgs]},
     }

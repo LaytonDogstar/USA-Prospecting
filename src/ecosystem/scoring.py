@@ -41,6 +41,20 @@ DEFAULT_TABLES = {
 }
 
 
+# Share of a site's whole traffic that is plausibly loan-seeking, by supply category.
+TRAFFIC_LOAN_SHARE = {
+    "lead_network_pingtree": 1.0, "connector_brand": 1.0, "comparison_offer_wall": 0.8, "content_affiliate": 0.6,
+    "affiliate_cpa_network": 0.5, "fintech_decline_source": 0.4, "paid_media_platform": 0.3,
+    "sponsored_publisher_agency": 0.25,
+}
+
+
+def is_lender(roles: set[str], has_lbs: bool) -> bool:
+    """A researched lender role, or a lead-buying index with no supply role (marketplaces such as comparison sites
+    appear on lead-buying lists too, but they are supply sources, not lenders)."""
+    return bool(roles & set(LENDER_ROLES)) or (has_lbs and not roles & set(SUPPLY_ROLES))
+
+
 def _log_scale(value: float | None, top: float) -> float | None:
     if value is None or value <= 0 or top <= 0:
         return None if value is None else 0.0
@@ -134,11 +148,13 @@ def buyer_components(org: m.Organisation, f: _Facts, tables: dict) -> dict:
                                [x[2] for x in sizes])
     loan_max = next((float(r.loan_max) for r in roles if r.loan_max is not None), None)
     if loan_max is not None:
-        # High-revenue buyers lend $2,500+; high-volume buyers lend small amounts. Both fit, price fits best.
-        fit = 100 if loan_max >= 2500 else 80 if loan_max >= 1500 else 70 if loan_max >= 500 else 50
+        # Subprime pingtree leads suit small-dollar lenders. Our high-revenue buyers lend up to ~$2,500-5,000 and our
+        # high-volume buyers less; lenders whose loans run to $10k+ are prime/near-prime and rarely buy these leads.
+        fit = (75 if loan_max <= 1000 else 100 if loan_max <= 5000 else 70 if loan_max <= 10000
+               else 40 if loan_max <= 25000 else 20)
         c["price_volume_fit"] = _component(fit, f"max loan ${loan_max:,.0f}",
-                                           "Loan size vs buyer profiles: $2,500+ = price buyer (100), $1,500+ = 80, "
-                                           "$500+ = volume buyer (70), less = 50",
+                                           "Loan size vs our buyers: up to $1,000 = volume buyer (75), $1,000-5,000 = "
+                                           "best fit (100), to $10k = 70, to $25k = 40, above = 20 (prime lending)",
                                            [cid for r in roles for cid in r.claim_ids])
     if roles:
         best = max(roles, key=lambda r: tables["type_fit"].get(r.role, 0))
@@ -156,9 +172,14 @@ def supply_components(org: m.Organisation, f: _Facts, tables: dict) -> dict:
     c = {}
     if (org.id, "ahrefs_organic_visits") in f.metrics:
         v, cid = f.metrics[(org.id, "ahrefs_organic_visits")]
-        c["traffic"] = _component(_log_scale(v, f.top["ahrefs_organic_visits"]), f"{v:,.0f} organic visits/mo",
-                                  "Ahrefs estimated US organic visits, log scale (domain level; page-level table "
-                                  "sizing comes in Phase 4)", [cid])
+        share = max([TRAFFIC_LOAN_SHARE.get(r.role, 0.5) for r in roles] or [0.5])
+        raw = _log_scale(v, f.top["ahrefs_organic_visits"])
+        c["traffic"] = _component(round(raw * share, 1) if raw is not None else None,
+                                  f"{v:,.0f} organic visits/mo, counted at {share:.0%}",
+                                  "Ahrefs whole-site visits on a log scale, counted only in part for sites whose traffic "
+                                  "isn't loan traffic (news and publishers 25%, paid media 30%, apps 40%, CPA 50%, content "
+                                  "60%, comparison 80%, networks and connectors 100%). Page-level sizing comes in Phase 4.",
+                                  [cid])
     if roles:
         best = max(roles, key=lambda r: tables["relevance"].get(r.role, 0))
         c["relevance"] = _component(tables["relevance"].get(best.role, 0), best.role,
@@ -218,7 +239,7 @@ def rescore(store: Store, score_types=("buyer_value", "supply_value")) -> dict:
         for org in orgs:
             roles = {r.role for r in f.roles[org.id]}
             if st == "buyer_value":
-                if not (roles & set(LENDER_ROLES) or org.id in f.lbs):
+                if not is_lender(roles, org.id in f.lbs):
                     continue
                 scored.append((org, buyer_components(org, f, tables)))
             else:

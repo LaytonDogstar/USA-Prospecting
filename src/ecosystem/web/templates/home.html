@@ -22,13 +22,14 @@
       <thead><tr><th>Lender</th><th>Type</th><th class="num">Buyer value</th><th></th></tr></thead>
       <tbody>
       {% for r in buyers %}
-        <tr><td><a href="/org/{{ r.id }}">{{ r.display_name }}</a>{% if r.parent_name %}<div class="small muted">{{ r.parent_name }}</div>{% endif %}</td>
+        <tr><td><a href="/org/{{ r.id }}">{{ r.name }}</a>{% if r.name != r.display_name %}<div class="small muted">{{ r.display_name }}</div>{% endif %}{% if r.parent_name %}<div class="small muted">{{ r.parent_name }}</div>{% endif %}</td>
           <td class="small">{{ r.role_list | join(', ') or '—' }}</td>
           <td class="num">{{ score_cell(r.score) }}</td>
           <td>{{ compliance_chip(r.compliance, r.flags) }}</td></tr>
       {% else %}<tr><td colspan="4" class="muted">No scored lenders yet. An admin can run a re-score under Admin.</td></tr>{% endfor %}
       </tbody>
     </table>
+    {% if held_b %}<p class="warnbox small" style="margin:8px 0 0">{{ held_b }} more held back: they may already be partners (open possible matches). <a href="/review?kind=possible_match">Resolve them in Review</a> before calling anyone.</p>{% endif %}
   </section>
 
   <section class="panel">
@@ -37,7 +38,7 @@
       <thead><tr><th>Source</th><th>Category</th><th class="num">Supply value</th><th></th></tr></thead>
       <tbody>
       {% for r in supply %}
-        <tr><td><a href="/org/{{ r.id }}">{{ r.display_name }}</a>{% if r.tier %} <span class="chip">{{ r.tier }}</span>{% endif %}
+        <tr><td><a href="/org/{{ r.id }}">{{ r.name }}</a>{% if r.tier %} <span class="chip">{{ r.tier }}</span>{% endif %}
               {% if r.parent_name %}<div class="small muted">{{ r.parent_name }}</div>{% endif %}</td>
           <td class="small">{{ r.role_list | join(', ') or '—' }}</td>
           <td class="num">{{ score_cell(r.score) }}</td>
@@ -45,6 +46,7 @@
       {% else %}<tr><td colspan="4" class="muted">No scored supply sources yet.</td></tr>{% endfor %}
       </tbody>
     </table>
+    {% if held_s %}<p class="warnbox small" style="margin:8px 0 0">{{ held_s }} more held back: they may already be partners. <a href="/review?kind=possible_match">Resolve them in Review</a>.</p>{% endif %}
   </section>
 
   <section class="panel">
@@ -63,7 +65,7 @@
     {% for a in activity %}
       <tr><td class="small muted" style="white-space:nowrap">{{ a.at.strftime('%d %b %H:%M') }}</td>
         <td class="small">{{ a.actor }}</td>
-        <td class="small">{{ a.action | replace('.', ' ') | replace('_', ' ') }}{% if a.after and a.after.get('note') %}: {{ a.after.get('note') }}{% elif a.after and a.after.get('title') %}: {{ a.after.get('title') }}{% endif %}</td></tr>
+        <td class="small">{{ a.action | replace('.', ' ') | replace('_', ' ') }}{% if a.count > 1 %} <b>×{{ a.count }}</b>{% endif %}{% if a.after and a.after.get('note') %}: {{ a.after.get('note') }}{% elif a.after and a.after.get('title') %}: {{ a.after.get('title') }}{% endif %}</td></tr>
     {% else %}<tr><td class="muted">No activity yet.</td></tr>{% endfor %}
     </tbody></table>
     {% if head.last_import %}<p class="small muted">Last import {{ head.last_import.strftime('%d %b %Y') }}.</p>{% endif %}

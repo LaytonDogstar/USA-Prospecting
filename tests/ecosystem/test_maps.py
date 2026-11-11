@@ -43,6 +43,8 @@ def test_graph_focus_groups_and_our_pingtree(store, targets_file, traffic_file, 
     acme = org_id(s, "Acme Ventures")
     grp = by_id[f"g{acme}"]
     assert grp["kind"] == "group" and grp["count"] == 6 and grp["label"] == "Acme Ventures (6)"
+    assert grp["brands"] == 5 and grp["owner_listed"] is True  # shown as "owner plus 5 brands"
+    assert "Rocket Bucks" in grp["members"]  # searchable while folded
     assert f"o{org_id(s, 'Rocket Bucks')}" not in by_id
     # our pingtree node is drawn from our_relationship only
     assert by_id["ours"]["kind"] == "ours"
@@ -68,7 +70,11 @@ def test_graph_filters_and_compliance_gate(store, targets_file, traffic_file, ow
     _load_all(store, targets_file, traffic_file, owner_groups_file, seed_file)
     s = store.s
     prairie = org_id(s, "Prairie Holdings, LLC")
-    labels = lambda f: {n["label"] for n in build_graph(s, f)["nodes"]}
+    # nodes carry the trading brand as label and the legal name separately
+    labels = lambda f: {n.get("legal") or n["label"] for n in build_graph(s, f)["nodes"]}
+    node = next(n for n in build_graph(s, {"view": "all"})["nodes"] if n.get("org_id") == prairie)
+    assert node["label"] == "Sunrise Lending" and node["legal"] == "Prairie Holdings, LLC"
+    assert node["pending_match"] is True  # open possible match with the buyer we contract with
     assert "Prairie Holdings, LLC" in labels({"view": "all", "role": "lender_tribal"})
     assert "Zephyr Loans" not in labels({"view": "all", "role": "lender_tribal"})
     assert "Zephyr Loans" in labels({"view": "all", "our": "live"})
@@ -95,3 +101,18 @@ def test_state_summary(store, targets_file, traffic_file, owner_groups_file, see
     assert serves({"explicit": {"TX"}, "nationwide": False, "excluded": set()}, "TX") == "listed"
     assert serves({"explicit": set(), "nationwide": True, "excluded": set()}, "OH") == "nationwide"
     assert serves({"explicit": set(), "nationwide": False, "excluded": set()}, "OH") is None
+
+
+def test_empty_layers_have_no_header(store, targets_file, traffic_file, owner_groups_file, seed_file):
+    _load_all(store, targets_file, traffic_file, owner_groups_file, seed_file)
+    g = build_graph(store.s, {"view": "all"})
+    used = {n["layer"] for n in g["nodes"] if n.get("layer") is not None}
+    for i, x in enumerate(g["layer_x"]):
+        assert (x is None) == (i not in used)
+
+
+def test_open_groups_are_reported(store, targets_file, traffic_file, owner_groups_file, seed_file):
+    _load_all(store, targets_file, traffic_file, owner_groups_file, seed_file)
+    acme = org_id(store.s, "Acme Ventures")
+    g = build_graph(store.s, {"view": "all"}, expand={acme})
+    assert g["stats"]["open_groups"] == [{"org_id": acme, "label": "Acme Ventures"}]

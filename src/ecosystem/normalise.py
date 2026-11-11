@@ -113,3 +113,23 @@ def name_similarity(a: str, b: str) -> float:
 def raw_key(name: str | None) -> str:
     """Lowercase letters and digits only, legal suffixes kept: 'Acme, Inc.' -> 'acmeinc'."""
     return re.sub(r"[^a-z0-9]", "", _ascii(name or "").lower())
+
+
+_LEGAL = re.compile(r"\b(llc|l\.l\.c|inc|incorporated|corp|corporation|company|holdings?|lp|llp|ltd|limited|"
+                    r"authority|enterprises?|development corporation|n\.?a)\b\.?", re.I)
+_KEEP_UPPER = {"LLC", "LP", "LLP", "USA", "US", "NA", "N.A.", "CNG", "CCF", "QC", "WLCC", "II", "III", "MDM", "DFC", "CNU"}
+
+
+def tidy_case(name: str) -> str:
+    """'OPORTUN FINANCIAL CORPORATION' -> 'Oportun Financial Corporation' (only for all-caps names)."""
+    letters = [c for c in name if c.isalpha()]
+    if not letters or not all(c.isupper() for c in letters) or len(letters) < 6:
+        return name
+    return " ".join(w if w.strip(",.") in _KEEP_UPPER else w.capitalize() for w in name.split())
+
+
+def friendly_name(display: str, brand: str | None) -> str:
+    """What a BD person would call it: the trading brand when the record carries a legal name."""
+    if brand and compact(brand) != compact(display) and (_LEGAL.search(display) or display.isupper() or ":" in display):
+        return brand
+    return tidy_case(display)

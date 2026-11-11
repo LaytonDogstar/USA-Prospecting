@@ -3,8 +3,8 @@
 {% block content %}
 <div class="page-head">
   <div><h1>Ecosystem map</h1>
-    <p class="muted">Who sells to whom, left to right: {{ layers | join(' → ') }}. Colour shows our relationship; size shows size.
-      Owner groups are folded into one node; click one to open it.</p></div>
+    <p class="muted">Who sells to whom, left to right: {{ layers | join(' → ') }}.
+      Opens on organisations we don't work with yet; set "Our relationship" to Any to see our buyers and links too.</p></div>
   <div class="small muted" id="map-stats"></div>
 </div>
 
@@ -12,14 +12,18 @@
   <label>View <select name="view">
     <option value="focus" {{ 'selected' if f.view != 'all' }}>Focus: A/B, top lenders, one hop from ours</option>
     <option value="all" {{ 'selected' if f.view == 'all' }}>Everything (dense)</option></select></label>
+  <label>Our relationship <select name="our"><option value="">Any</option>
+    <option value="none" {{ 'selected' if f.our == 'none' }}>None yet (prospects)</option><option value="any" {{ 'selected' if f.our == 'any' }}>Any relationship</option>
+    {% for s in our_statuses %}<option value="{{ s }}" {{ 'selected' if f.our == s }}>{{ s | replace('_', ' ') }}</option>{% endfor %}</select></label>
   <label>Type <select name="role"><option value="">Any</option>
     {% for k, label in roles %}<option value="{{ k }}" {{ 'selected' if f.role == k }}>{{ label }}</option>{% endfor %}</select></label>
-  <label>Our relationship <select name="our"><option value="">Any</option>
-    <option value="none" {{ 'selected' if f.our == 'none' }}>None yet</option><option value="any" {{ 'selected' if f.our == 'any' }}>Any</option>
-    {% for s in our_statuses %}<option value="{{ s }}" {{ 'selected' if f.our == s }}>{{ s | replace('_', ' ') }}</option>{% endfor %}</select></label>
   <label>Compliance <select name="compliance">
     {% for v, label in [('hide_blocked','Hide blocked'),('all','All'),('flagged','Has flags'),('review','Review'),('blocked','Blocked only')] %}
     <option value="{{ v }}" {{ 'selected' if (f.compliance or 'hide_blocked') == v }}>{{ label }}</option>{% endfor %}</select></label>
+  <label>Highlight <select name="highlight">
+    <option value="">Nothing</option>
+    <option value="compliance" {{ 'selected' if f.highlight == 'compliance' }}>Compliance (fade the rest)</option>
+    <option value="partner" {{ 'selected' if f.highlight == 'partner' }}>May already be a partner</option></select></label>
   <label>State (lenders) <select name="state"><option value="">Any</option>
     {% for s in states %}<option {{ 'selected' if f.state == s }}>{{ s }}</option>{% endfor %}</select></label>
   <label>Tribe <select name="tribe"><option value="">Any</option>
@@ -32,6 +36,10 @@
 
 <div class="map-wrap">
   <div class="map-canvas">
+    <div class="map-search">
+      <input id="map-find" type="search" list="map-names" placeholder="Find an organisation…" aria-label="Find an organisation on the map">
+      <datalist id="map-names"></datalist>
+    </div>
     <div class="map-tools" role="toolbar" aria-label="Map zoom">
       <button type="button" id="map-in" aria-label="Zoom in">+</button>
       <button type="button" id="map-out" aria-label="Zoom out">−</button>
@@ -41,18 +49,25 @@
     <div id="cy" class="panel" aria-label="Ecosystem network map"></div>
   </div>
   <aside id="map-side" class="panel">
+    <div id="map-open"></div>
     <div id="map-detail"><p class="muted">Click a node to see it here. Double-click opens its page.</p></div>
     <h3>Key</h3>
     <ul class="legend">
       <li><span class="dot" style="background:var(--good)"></span>Live / contracting</li>
       <li><span class="dot" style="background:var(--accent)"></span>In talks / paused</li>
       <li><span class="dot" style="background:var(--line-strong)"></span>No relationship</li>
-      <li><span class="dot ring-warn"></span>Compliance review or flags</li>
       <li><span class="dot ring-bad"></span>Blocked</li>
-      <li><span class="sq"></span>Owner group (click to open)</li>
-      <li><span class="line solid"></span>Confirmed link · <span class="line dashed"></span>inferred · <span class="line dotted"></span>rumoured</li>
+      <li><span class="dot ring-warn"></span>Compliance review (decided)</li>
+      <li><span class="dot ring-warn dashed"></span>Flags found, not yet reviewed</li>
+      <li><span class="dot ring-good"></span>Checked: clear</li>
+      <li><span class="dot"></span>No ring: compliance not checked yet</li>
+      <li><span class="dot ring-partner"></span>May already be a partner (open match)</li>
+      <li><span class="sq"></span>Owner group: click, then "Show members"</li>
+      <li><span class="line solid"></span>confirmed</li>
+      <li><span class="line dashed"></span>inferred (e.g. from a lender's partner list)</li>
+      <li><span class="line dotted"></span>rumoured</li>
     </ul>
-    <p class="small muted">Links come from claims (partner and consent lists, owner groups, sponsored content). Links to "Our pingtree" come only from our relationships.</p>
+    <p class="small muted">Links to "Our pingtree" come only from our relationships. Most other links are inferred from published partner and consent lists.</p>
   </aside>
 </div>
 <script src="/static/vendor/cytoscape-3.30.4.min.js"></script>

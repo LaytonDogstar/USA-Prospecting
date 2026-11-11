@@ -8,10 +8,10 @@ from ...mapgraph import LAYERS, build_graph
 from ...parsing import US_STATES
 from ...scoring import LENDER_ROLES, SUPPLY_ROLES
 from ..deps import current_user, get_db, render
-from ..views import OUR_STATUSES, ROLE_LABELS, tribes
+from ..views import OUR_STATUSES, ROLE_LABELS, owner_groups, shared_feeders, tribes
 
 router = APIRouter()
-MAP_FILTERS = ("view", "role", "tribe", "state", "our", "min_score", "compliance", "screened")
+MAP_FILTERS = ("view", "role", "tribe", "state", "our", "min_score", "compliance", "screened", "highlight")
 
 
 def _filters(request: Request) -> dict:
@@ -24,7 +24,10 @@ def _expand(request: Request) -> set[int]:
 
 @router.get("/map")
 def map_page(request: Request, db: Session = Depends(get_db), user=Depends(current_user)):
-    return render(request, "map.html", user, f=_filters(request), expand=request.query_params.get("expand", ""),
+    f = _filters(request)
+    if not request.query_params:
+        f["our"] = "none"  # open on prospects: organisations we don't work with yet
+    return render(request, "map.html", user, f=f, expand=request.query_params.get("expand", ""),
                   roles=[(r, ROLE_LABELS[r]) for r in (*SUPPLY_ROLES, *LENDER_ROLES)], our_statuses=OUR_STATUSES,
                   states=sorted(US_STATES), tribes=tribes(db), layers=LAYERS)
 
@@ -40,3 +43,8 @@ def states_page(request: Request, db: Session = Depends(get_db), user=Depends(cu
     rows = sorted(summary["states"].items(), key=lambda kv: (-kv[1]["total"], kv[0]))
     return render(request, "states.html", user, s=summary, rows=rows, names=US_STATES,
                   types=[k for k, _ in LENDER_TYPES] + ["unknown"], type_labels=TYPE_LABELS)
+
+
+@router.get("/leverage")
+def leverage_page(request: Request, db: Session = Depends(get_db), user=Depends(current_user)):
+    return render(request, "leverage.html", user, groups=owner_groups(db), feeders=shared_feeders(db))

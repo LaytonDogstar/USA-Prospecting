@@ -21,7 +21,8 @@ REVIEW_LABELS = {
 @router.get("/")
 def home(request: Request, db: Session = Depends(get_db), user=Depends(current_user)):
     counts = review_counts(db)
-    return render(request, "home.html", user,
-                  buyers=top_unworked(db, "lenders"), supply=top_unworked(db, "supply"),
+    buyers, held_b = top_unworked(db, "lenders")
+    supply, held_s = top_unworked(db, "supply")
+    return render(request, "home.html", user, buyers=buyers, supply=supply, held_b=held_b, held_s=held_s,
                   reviews=[(k, REVIEW_LABELS.get(k, k), counts[k]) for k in REVIEW_LABELS if counts.get(k)],
                   activity=recent_activity(db), head=headline_counts(db))

@@ -71,7 +71,9 @@ def test_login_and_home(web):
     login(web)
     r = web.get("/")
     assert r.status_code == 200 and "What matters now" in r.text
-    assert "Prairie Holdings" in r.text  # top unworked buyer
+    # Prairie is the top unworked buyer, but an open possible match says it may already be a partner:
+    # it is held back from the list, with a warning pointing to Review
+    assert "Sunrise Lending" not in r.text and "held back" in r.text
     assert r.headers["X-Frame-Options"] == "DENY"
 
 
@@ -244,10 +246,33 @@ def test_map_and_state_pages(web, session):
     assert "Ecosystem map" in web.get("/map").text
     data = web.get("/map/data?view=all").json()
     assert data["nodes"] and "stats" in data
-    assert any(n["label"] == "Prairie Holdings, LLC" for n in data["nodes"])
+    assert any(n.get("legal") == "Prairie Holdings, LLC" for n in data["nodes"])
+    # the map opens on prospects; an explicit "Any" is respected
+    assert '<option value="none" selected>' in web.get("/map").text
+    assert '<option value="none" selected>' not in web.get("/map?view=focus").text
+    lev = web.get("/leverage").text
+    assert "Owner groups" in lev and "Acme Ventures" not in lev  # owner groups come from the owner_groups file, not loaded here
     assert web.get("/map/data?view=all&expand=999999").status_code == 200
     page = web.get("/states").text
-    assert "Lenders serving each state" in page and 'href="/lenders?state=TX"' in page
+    assert "lenders known to serve each state" in page and 'href="/lenders?state=TX"' in page
     assert "Prairie Holdings" in web.get("/lenders?state=TX").text
     assert "Prairie Holdings" not in web.get("/lenders?state=NY").text
     assert web.get("/static/vendor/cytoscape-3.30.4.min.js").status_code == 200
+
+
+def test_possible_partner_safeguards(web, session):
+    login(web)
+    r = web.get("/lenders?our=none").text
+    assert "may already be a partner" in r
+    prairie = org_id(session, "Prairie Holdings, LLC")
+    page = web.get(f"/org/{prairie}").text
+    assert "May already be a partner" in page
+    # the relationship form is closed by default: no accidental saves
+    assert "<details><summary>Add a relationship</summary>" in page
+
+
+def test_recent_activity_folds_repeats(web, session):
+    from ecosystem.web.views import recent_activity
+    acts = recent_activity(session)
+    assert all(not (a["action"] == b["action"] and a["actor"] == b["actor"]) for a, b in zip(acts, acts[1:]))
+    assert any(a["count"] > 1 for a in acts)

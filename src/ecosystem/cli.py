@@ -16,7 +16,7 @@ from .auth import create_user
 from .db import session_scope
 from .importers import (default_attribute_defs, import_owner_groups, import_relationship_seed, import_targets,
                         import_traffic)
-from .matching import name_dedup_suggestions, possible_match_sweep
+from .matching import name_dedup_suggestions, possible_match_sweep, shared_key_suggestions
 from .reconcile import report, to_markdown
 from .scoring import rescore
 from .store import Store
@@ -46,6 +46,7 @@ def import_all(store: Store, raw: Path | None = None, ref: Path | None = None) -
     if (ref / "our_relationships_seed.csv").exists():
         out["our_relationships_seed.csv"] = import_relationship_seed(store, ref / "our_relationships_seed.csv")
     out["name_dedup_suggestions"] = name_dedup_suggestions(store)
+    out["shared_key_suggestions"] = shared_key_suggestions(store)
     out["possible_match_sweep"] = possible_match_sweep(store)
     out["rescore"] = rescore(store)
     return out

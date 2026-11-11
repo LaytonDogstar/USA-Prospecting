@@ -27,6 +27,8 @@
 {% if cstatus and cstatus.value == 'blocked' %}<div class="badbox"><b>Blocked:</b> {{ cstatus.note }} ({{ cstatus.set_by }}, {{ cstatus.set_at.strftime('%d %b %Y') }})</div>
 {% elif cstatus and cstatus.value == 'review' %}<div class="warnbox"><b>Compliance review:</b> {{ cstatus.note }}</div>
 {% elif flags and not cstatus %}<div class="warnbox">{{ flags | length }} compliance flag{{ 's' if flags | length != 1 }} found and no compliance status set yet. <a href="#compliance">Review</a></div>{% endif %}
+{% set pm = reviews | selectattr('kind', 'equalto', 'possible_match') | list %}
+{% if pm and not ours %}<div class="badbox"><b>May already be a partner.</b> {{ pm | length }} open possible match{{ 'es' if pm | length != 1 }} with our relationships. Resolve in Review before contacting them.</div>{% endif %}
 {% if reviews %}<div class="warnbox">Open review items: {% for it in reviews %}<a href="/review?kind={{ it.kind }}#item-{{ it.id }}">{{ it.title }}</a>{{ '; ' if not loop.last }}{% endfor %}</div>{% endif %}
 
 <div class="grid g2">
@@ -117,7 +119,7 @@
       {% if ours.notes %}<p class="pre small">{{ ours.notes }}</p>{% endif %}
     {% else %}<p class="muted">We don't work with them. This is set by people only, never inferred from names.</p>{% endif %}
     {% if admin %}
-    <details {{ 'open' if not ours }}><summary>{{ 'Edit' if ours else 'Add a relationship' }}</summary>
+    <details><summary>{{ 'Edit relationship' if ours else 'Add a relationship' }}</summary>
       <form method="post" action="/org/{{ org.id }}/relationship" class="stack">{{ csrf_field(csrf) }}
         <div class="row">
           <label>Role <select name="role">{% for r in our_roles %}<option {{ 'selected' if ours and ours.role == r }}>{{ r }}</option>{% endfor %}</select></label>

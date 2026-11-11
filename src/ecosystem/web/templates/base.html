@@ -18,6 +18,7 @@
     <a href="/supply" class="{{ 'on' if path.startswith('/supply') }}">Supply</a>
     <a href="/map" class="{{ 'on' if path.startswith('/map') }}">Map</a>
     <a href="/states" class="{{ 'on' if path.startswith('/states') }}">States</a>
+    <a href="/leverage" class="{{ 'on' if path.startswith('/leverage') }}">Leverage</a>
     <a href="/people" class="{{ 'on' if path.startswith('/people') }}">People</a>
     <a href="/review" class="{{ 'on' if path.startswith('/review') }}">Review</a>
     {% if user.role == 'admin' %}<a href="/admin/weights" class="{{ 'on' if path.startswith('/admin') }}">Admin</a>{% endif %}

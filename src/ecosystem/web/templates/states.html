@@ -14,9 +14,12 @@
 {% if s.our_buyers_unknown %}<div class="warnbox small">{{ s.our_buyers_unknown }} of our live buyers have no state data yet, so the "ours" figures undercount.
   Phase 4 research and the pingtree buyer filters will fill this in. Gaps (traffic in a state but few buyers) need traffic-by-state from the internal source.</div>{% endif %}
 
+{% set coverage = (s.known_footprint / s.lenders) if s.lenders else 0 %}
 <section class="panel" style="margin-bottom:16px">
-  <h2>Lenders serving each state</h2>
-  <div class="tiles" role="list">
+  <h2>{{ 'Research coverage: ' if coverage < 0.5 }}lenders known to serve each state
+    <span class="small muted">{{ s.known_footprint }} of {{ s.lenders }} lenders ({{ '%.0f' | format(coverage * 100) }}%) have state data</span></h2>
+  {% if coverage < 0.5 %}<p class="warnbox small">This shows <b>where research has been done</b>, not the market. A low number means "few researched lenders list this state", not "few lenders serve it". The map is greyed out until at least half of the lenders have state data.</p>{% endif %}
+  <div class="tiles {{ 'low-coverage' if coverage < 0.5 }}" role="list">
     {% for code, v in s.states.items() if v.tile %}
       {% set share = (v.total / s.max_total) if s.max_total else 0 %}
       <a role="listitem" class="tile" href="/lenders?state={{ code }}"

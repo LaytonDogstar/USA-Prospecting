@@ -44,6 +44,13 @@ def test_states():
     assert r["basis"] == "excluded" and r["states"] == ["GA", "AR", "CT", "DC"]
     r = p.states("Tennessee, Kentucky, West Virginia")
     assert r["basis"] == "lends" and r["states"] == ["TN", "KY", "WV"]
+    # negations the first parser read backwards
+    r = p.states("Not all states; does not lend in Alaska")
+    assert r["basis"] == "excluded" and r["states"] == ["AK"]
+    r = p.states("Most states; not CO, CT, ME, NV")
+    assert r["basis"] == "excluded" and r["states"] == ["CO", "CT", "ME", "NV"]
+    r = p.states("Federal-employee program in all 50 states, DC and PR except WV")
+    assert r["basis"] == "excluded" and r["states"] == ["WV"] and not r["nationwide"]
     r = p.states("40 states (as of Dec 31, 2025)")
     assert r["count"] == 40 and r["basis"] is None
     assert p.states("Complaint states: CA (5), OR, KS")["states"] == []

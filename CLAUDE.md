@@ -33,7 +33,8 @@ src/ecosystem/
   parsing.py     free-text parsers (type→roles, loan range, states, brands, list appearances,
                  compliance flags, hedged operator groups, URL → source type)
   normalise.py   name/domain normalisation, generic-word filter, similarity
-  matching.py    possible-match sweep against our relationships; name dedup suggestions
+  matching.py    possible-match sweep against our relationships; name dedup suggestions; shared name /
+                 website dedup suggestions (shared_key_suggestions)
   reconcile.py   count reconciliation report
   auth.py        username/password (argon2, lockout after 5 failures)
   scoring.py     buyer_value and supply_value: components (with claim ids), versioned weights, rescore()
@@ -46,7 +47,8 @@ src/ecosystem/
     app.py       create_app(): sessions, security headers, routers
     deps.py      get_db, current_user, admin_user (admin + CSRF for every POST), render(), template filters
     views.py     read queries for tables/home (whitelisted SQL fragments, bound params)
-    routes/      auth, home, tables (lenders/supply/people + CSV), maps (/map, /map/data JSON, /states),
+    routes/      auth, home, tables (lenders/supply/people + CSV), maps (/map, /map/data JSON, /states,
+                 /leverage: owner groups and sources feeding several of our buyers),
                  entity (page, evidence, source, edits),
                  review (inbox + decisions: merge / link / approve / reject), admin (weights, rescore, users,
                  imports upload, audit)
@@ -58,6 +60,12 @@ migrations/      Alembic. 0001 = initial schema + entity_current view; 0002 = la
 tests/ecosystem/ pytest; conftest builds made-up workbooks. test_acceptance_real_data.py runs only
                  when the real files and data/reference/acceptance.json are present.
 ```
+
+Who is a lender: a researched lender role, or a lead-buying index with no supply role (`scoring.is_lender`, `footprint.LENDER_SQL`); marketplaces on lead-buying lists are supply. Price/volume fit peaks at $1,000-5,000 max loans and falls for prime-sized loans. Supply traffic is whole-site, so it counts only in part by category (`TRAFFIC_LOAN_SHARE`) until Phase 4 page-level sizing.
+
+Existing-partner safeguard: an organisation with an open `possible_match` review item is held back from Home's "not yet worked" lists and flagged "may already be a partner" in tables, on its page and on the map. Nobody should cold-call a possible partner.
+
+Display names: `normalise.friendly_name` shows the trading brand when the record carries a legal name (and tidies ALL-CAPS names); the legal name stays visible underneath.
 
 Scoring rules: components score 0-100. A component nobody has data for yet (state overlap, traffic overlap: they need the internal source) is left out for everyone; a component missing for one organisation scores 25 ("unknown") so thin records don't outrank researched ones. Compliance is a gate, not a component: `blocked` is hidden from ranked views by default, `review` shows a warning.
 

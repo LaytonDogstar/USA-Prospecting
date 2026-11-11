@@ -12,6 +12,17 @@ from sqlalchemy import text
 
 from .parsing import US_STATES
 
+# Who counts as a lender: the same rule as scoring.is_lender, used by the lenders table and the state map.
+LENDER_SQL = """(
+  EXISTS (SELECT 1 FROM org_role r WHERE r.organisation_id = o.id
+          AND r.role IN ('lender_tribal','lender_state_licensed','lender_bank_partner','lender_cab_cso','servicer'))
+  OR (EXISTS (SELECT 1 FROM score sc WHERE sc.entity_id = o.id AND sc.score_type = 'lbs_index')
+      AND NOT EXISTS (SELECT 1 FROM org_role r WHERE r.organisation_id = o.id
+                      AND r.role IN ('lead_network_pingtree','connector_brand','comparison_offer_wall','content_affiliate',
+                                     'sponsored_publisher_agency','affiliate_cpa_network','paid_media_platform',
+                                     'fintech_decline_source')))
+)"""
+
 STATE_SERVES_SQL = """(
   EXISTS (SELECT 1 FROM entity_state es WHERE es.entity_id = o.id AND es.state = :state AND es.basis IN ('lends','licensed'))
   OR EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = o.id AND ec.attribute = 'nationwide' AND ec.value = 'true'::jsonb)
@@ -50,9 +61,7 @@ def lender_footprints(db) -> dict[int, dict]:
         LEFT JOIN our_relationship ours ON ours.organisation_id = o.id
         LEFT JOIN compliance_status cs ON cs.entity_id = o.id
         WHERE o.lifecycle IN ('active', 'candidate') AND cs.value IS DISTINCT FROM 'blocked'
-          AND (EXISTS (SELECT 1 FROM org_role r WHERE r.organisation_id = o.id
-                       AND r.role IN ('lender_tribal','lender_state_licensed','lender_bank_partner','lender_cab_cso'))
-               OR (ours.status IN ('live','contracting') AND ours.role IN ('buyer','both')))
+          AND (""" + LENDER_SQL + """ OR (ours.status IN ('live','contracting') AND ours.role IN ('buyer','both')))
     """))
     out = {}
     for r in rows:

@@ -104,3 +104,42 @@ def name_dedup_suggestions(store: Store, threshold: float = 0.9) -> int:
                                  [a, b], {"reasons": [f"name similarity {sim:.2f}"]})
                     n += 1
     return n
+
+
+def shared_key_suggestions(store: Store) -> int:
+    """Organisations that share a non-generic name, brand or website but were kept apart on import
+    (e.g. a CFPB record 'X Financial dba Brand' and a researched record that lists Brand and brand.com)."""
+    s = store.s
+    live = {r[0]: r[1] for r in s.execute(select(m.Organisation.id, m.Organisation.kind)
+                                          .where(m.Organisation.lifecycle != "merged"))}
+    by_key: dict[str, set[int]] = defaultdict(set)
+    for eid, alias, comp in s.execute(select(m.NameAlias.entity_id, m.NameAlias.alias, m.NameAlias.alias_compact)):
+        if eid in live and live[eid] == "company" and len(comp) >= 6 and not is_generic(alias):
+            by_key[f"name:{comp}"].add(eid)
+    for oid, host in s.execute(select(m.Domain.organisation_id, m.Domain.hostname)):
+        if oid in live:
+            by_key[f"domain:{host}"].add(oid)
+    for oid, val in s.execute(select(m.Claim.entity_id, m.Claim.value).where(m.Claim.attribute == "declared_domain")):
+        if oid in live and isinstance(val, str):
+            by_key[f"domain:{val}"].add(oid)
+    n = 0
+    for key, ids in by_key.items():
+        if not 2 <= len(ids) <= 4:  # bigger clusters are generic words or shared list sites, not one company
+            continue
+        ids = sorted(ids)
+        for i, a in enumerate(ids):
+            for b in ids[i + 1:]:
+                if s.scalar(select(m.Organisation.parent_id).where(m.Organisation.id == a)) == b or \
+                        s.scalar(select(m.Organisation.parent_id).where(m.Organisation.id == b)) == a:
+                    continue  # already linked as owner and brand
+                kind, val = key.split(":", 1)
+                item = store.review("dedup", f"dedup:{a}:{b}",
+                                    f"Same organisation? {store.org(a).display_name} / {store.org(b).display_name}",
+                                    [a, b], {"reasons": [f"share the {'website' if kind == 'domain' else 'name'} {val}"]})
+                reasons = set(item.payload.get("reasons", []))
+                new = f"share the {'website' if kind == 'domain' else 'name'} {val}"
+                if new not in reasons and item.status == "open":
+                    item.payload = {**item.payload, "reasons": sorted(reasons | {new})}
+                n += 1
+    return n
+

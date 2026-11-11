@@ -52,8 +52,10 @@
   <tbody>
   {% for r in rows %}
     <tr>
-      <td><a href="/org/{{ r.id }}">{{ r.display_name }}</a>
+      <td><a href="/org/{{ r.id }}">{{ r.name }}</a>
+        {% if r.name != r.display_name %}<div class="small muted">{{ r.display_name }}</div>{% endif %}
         {% if r.domain %}<div class="small muted">{{ r.domain }}</div>{% endif %}
+        {% if r.pending_match and not r.our_status %}<a class="chip warn" href="/review?kind=possible_match" title="An open possible match says this may be one of our existing partners">may already be a partner</a>{% endif %}
         {% if r.lifecycle == 'screened_out' %}<span class="chip">screened out</span>{% elif r.lifecycle == 'candidate' %}<span class="chip">candidate</span>{% endif %}</td>
       <td class="small">{{ r.role_list | join(', ') or '—' }}</td>
       <td class="small">{% if r.parent_id %}<a href="/{{ kind }}?group={{ r.parent_id }}">{{ r.parent_name }}</a>{% else %}—{% endif %}</td>
@@ -78,5 +80,5 @@
   {% if page < pages %}<a class="btn" href="{{ qs(f, page=page + 1) }}">Next →</a>{% endif %}
 </div>
 {% endif %}
-<p class="small muted">"?" after a relationship means it still needs confirming. Scores show components on each organisation's page.</p>
+<p class="small muted">"?" after a relationship means it still needs confirming. "May already be a partner" means an open possible match with one of our relationships: check it in Review before contacting them. Scores show components on each organisation's page.</p>
 {% endblock %}

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "_macros.html" import our_chip, score_cell %}
+{% block title %}Leverage{% endblock %}
+{% block content %}
+<div class="page-head"><div>
+  <h1>Leverage</h1>
+  <p class="muted">Where one conversation unlocks several: owners behind many brands, and traffic sources that already feed the buyers we sell to.</p>
+</div></div>
+
+<section class="panel table-wrap" style="margin-bottom:16px">
+  <h2>Owner groups <span class="small muted">{{ groups | length }} owners with two or more organisations</span></h2>
+  <table>
+    <thead><tr><th>Owner</th><th class="num">Organisations</th><th>Members</th><th>Types</th><th class="num">Best score</th>
+      <th class="num">Ours</th><th class="num">Flagged</th><th></th></tr></thead>
+    <tbody>
+    {% for g in groups %}
+      <tr><td><a href="/org/{{ g.id }}">{{ g.name }}</a>{% if g.kind != 'company' %} <span class="chip">{{ g.kind | replace('_', ' ') }}</span>{% endif %}
+          {% if g.group_ours %}<div>{{ our_chip(g.group_ours) }}</div>{% endif %}</td>
+        <td class="num"><b>{{ g.members }}</b></td>
+        <td class="small">{{ g.member_names[:6] | join(', ') }}{% if g.member_names | length > 6 %} … +{{ g.member_names | length - 6 }}{% endif %}</td>
+        <td class="small">{{ g.role_list | join(', ') or '—' }}</td>
+        <td class="num">{{ score_cell(g.best_score if g.best_score else none) }}</td>
+        <td class="num">{{ g.ours or '' }}</td>
+        <td class="num">{% if g.flagged %}<span class="chip warn">{{ g.flagged }}</span>{% endif %}</td>
+        <td><a class="small" href="/map?view=all&our=&expand={{ g.id }}">On the map</a></td></tr>
+    {% else %}<tr><td colspan="8" class="muted">No owner groups yet.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  <p class="small muted">Groups come from the research files and approved review decisions ("one owns the other"). Many owner links are still to be confirmed.</p>
+</section>
+
+<section class="panel table-wrap">
+  <h2>Sources feeding several of our buyers <span class="small muted">{{ feeders | length }} found</span></h2>
+  <table>
+    <thead><tr><th>Source</th><th>Type</th><th class="num">Our buyers it feeds</th><th>Which</th><th class="num">Buyers in total</th>
+      <th class="num">Supply value</th><th>Ours</th><th>Evidence</th></tr></thead>
+    <tbody>
+    {% for f in feeders %}
+      <tr><td><a href="/org/{{ f.id }}">{{ f.name }}</a>{% if f.domain and f.domain != f.name %}<div class="small muted">{{ f.domain }}</div>{% endif %}</td>
+        <td class="small">{{ f.role_list | join(', ') or 'not researched' }}</td>
+        <td class="num"><b>{{ f.buyers }}</b></td>
+        <td class="small">{{ f.buyer_names[:5] | join(', ') }}{% if f.buyer_names | length > 5 %} … +{{ f.buyer_names | length - 5 }}{% endif %}</td>
+        <td class="num">{{ f.buyers_total }}</td>
+        <td class="num">{{ score_cell(f.supply_value) }}</td>
+        <td>{{ our_chip(f.our_status) }}</td>
+        <td class="small">{{ 'confirmed' if f.any_confirmed else 'inferred from partner lists' }}</td></tr>
+    {% else %}<tr><td colspan="8" class="muted">None yet.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  <p class="small muted">A source here already sends leads to buyers we sell to, so its traffic suits our buyers. "Inferred" means the buyer names the source on its partner or consent list; which network carries the leads isn't known yet.</p>
+</section>
+{% endblock %}

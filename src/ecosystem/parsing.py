@@ -7,7 +7,7 @@ import re
 
 from .normalise import find_domains, norm_domain
 
-PARSE_METHOD = "parse:v1"
+PARSE_METHOD = "parse:v2"  # v2: states negations ("does not lend in", "Most states; not ...") read correctly
 
 US_STATES = {
     "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California", "CO": "Colorado",
@@ -139,7 +139,17 @@ def states(text: str | None) -> dict:
             seen.append(s)
     out["states"] = seen
     if seen:
-        out["basis"] = "excluded" if re.search(r"not available in|except|excluding|excludes", t, re.I) else "lends"
+        negated = re.search(
+            r"not available in|not offered in|does not lend|doesn'?t lend|not lend|no loans in|not licensed in|"
+            r"\bexcept\b|excluding|excludes|\bnot\s+(?=[A-Z]{2}\b)|;\s*not\b", t, re.I)
+        out["basis"] = "excluded" if negated else "lends"
+        if negated:
+            # only the states named after the negation are excluded ('all 50 states, DC and PR except WV' -> WV)
+            tail = t[negated.start():]
+            after = [_NAME_TO_CODE[x.group(1).lower()] for x in _STATE_NAME_RE.finditer(tail)] + \
+                    [x.group(1) for x in _STATE_CODE_RE.finditer(tail)]
+            out["states"] = [st for st in seen if st in after] or seen
+            out["nationwide"] = False  # an exclusion list, not 'everywhere'
         if re.search(r"minimums in|rates pages", t, re.I):
             out["basis"] = None  # mentions states without saying it lends/excludes there
             out["states"] = []
