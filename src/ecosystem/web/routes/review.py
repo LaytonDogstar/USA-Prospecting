@@ -96,9 +96,10 @@ def decide(item_id: int, request: Request, action: str = Form(...), note: str = 
         from ...research import apply_research
         from ...scoring import rescore
         n = apply_research(st, it)
+        only = set(it.entity_ids)
         shared_key_suggestions(st)
-        possible_match_sweep(st)
-        rescore(st)
+        possible_match_sweep(st, only=only)   # just this company, not the whole map
+        rescore(st, org_ids=only, audit=False)
         it.status, done = "approved", f"Accepted {n} researched facts and re-scored."
     elif action == "screen" and it.kind == "research":
         from ...research import apply_research, screen_out
@@ -106,7 +107,6 @@ def decide(item_id: int, request: Request, action: str = Form(...), note: str = 
         n = apply_research(st, it)
         org = st.org(it.entity_ids[0])
         screen_out(st, org, note.strip() or (it.payload.get("summary") or "Not a US consumer lender (research)")[:300])
-        rescore(st)
         it.status, done = "approved", f"Accepted {n} facts and screened out {org.display_name}."
     elif action == "reject" and it.kind == "research":
         from ...research import reject_research

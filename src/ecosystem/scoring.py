@@ -7,11 +7,12 @@ records which components were missing. Weights are versioned in `weights_version
 
 Compliance is a gate, not a component: see `views.compliance_gate`.
 """
+import json
 import math
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select, text
 
 from . import models as m
 from .store import Store
@@ -226,9 +227,16 @@ def combine(components: dict, weights: dict, available: set[str], missing_score:
     return (round(total / total_w, 1) if total_w else 0.0), missing
 
 
-def rescore(store: Store, score_types=("buyer_value", "supply_value")) -> dict:
+def rescore(store: Store, score_types=("buyer_value", "supply_value"), org_ids: set[int] | None = None,
+            audit: bool = True) -> dict:
+    """Recompute scores. A new score row is written only when the value, the components or the weights version
+    changed, so history records real movements rather than a copy per run. org_ids limits which organisations get
+    new rows (component availability is still judged across everyone, so scores stay comparable)."""
     s = store.s
     f = _Facts(s)
+    latest = {(r.entity_id, r.score_type): r for r in s.execute(text(
+        "SELECT entity_id, score_type, value, weights_version_id, components FROM latest_score "
+        "WHERE score_type IN ('buyer_value', 'supply_value')"))}
     orgs = list(s.scalars(select(m.Organisation).where(m.Organisation.lifecycle.in_(("active", "candidate")))))
     out = {}
     now = datetime.now(timezone.utc)
@@ -247,14 +255,25 @@ def rescore(store: Store, score_types=("buyer_value", "supply_value")) -> dict:
                     continue
                 scored.append((org, supply_components(org, f, tables)))
         available = {k for _, comps in scored for k, c in comps.items() if c["score"] is not None}
+        written = 0
         for org, comps in scored:
+            if org_ids is not None and org.id not in org_ids:
+                continue
             value, missing = combine(comps, weights, available)
             for k, comp in comps.items():
                 comp["weight"] = weights.get(k, 0) if k in available else 0
+            components = {"components": comps, "missing": missing, "weights_label": wv.label,
+                          "not_yet_available": sorted(set(weights) - available)}
+            prev = latest.get((org.id, st))
+            if prev is not None and prev.weights_version_id == wv.id and float(prev.value) == float(value) \
+                    and prev.components == json.loads(json.dumps(components, default=str)):
+                continue  # unchanged: no new history row
             s.add(m.Score(entity_id=org.id, score_type=st, value=value, weights_version_id=wv.id, computed_at=now,
-                          components={"components": comps, "missing": missing, "weights_label": wv.label,
-                                      "not_yet_available": sorted(set(weights) - available)}))
-        out[st] = {"scored": len(scored), "weights": wv.label, "not_yet_available": sorted(set(weights) - available)}
-    store.audit("scores.rescore", "score", None, None, {**out, "at": now.isoformat()})
+                          components=components))
+            written += 1
+        out[st] = {"scored": len(scored), "changed": written, "weights": wv.label,
+                   "not_yet_available": sorted(set(weights) - available)}
+    if audit:
+        store.audit("scores.rescore", "score", None, None, {**out, "at": now.isoformat()})
     s.flush()
     return out

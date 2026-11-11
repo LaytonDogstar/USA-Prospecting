@@ -13,24 +13,56 @@ from .store import Store
 LIVE_LIKE = ("live", "paused", "contracting", "in_talks", "former")
 
 
+def _all_keys(store: Store, ids: set[int] | None = None) -> dict[int, dict]:
+    """Matching keys for many organisations in a handful of queries (one query per organisation was ~3,000
+    round trips, which made accepting a review card slow on a remote database)."""
+    s = store.s
+    q_orgs = select(m.Organisation.id, m.Organisation.parent_id).where(m.Organisation.lifecycle != "merged")
+    if ids is not None:
+        q_orgs = q_orgs.where(m.Organisation.id.in_(ids))
+    keys = {oid: {"names": set(), "domains": set(), "stems": set(), "groups": {pid} - {None}, "tribes": set()}
+            for oid, pid in s.execute(q_orgs)}
+    want = set(keys)
+    def rows(q):
+        return s.execute(q).all() if ids is None else s.execute(q.where(q.selected_columns[0].in_(want))).all()
+    for eid, comp in rows(select(m.NameAlias.entity_id, m.NameAlias.alias_compact)):
+        if eid in keys and comp:
+            keys[eid]["names"].add(comp)
+    for oid, norm in rows(select(m.Brand.organisation_id, m.Brand.name_norm)):
+        if oid in keys:
+            keys[oid]["names"].add(norm.replace(" ", ""))
+    for oid, host in rows(select(m.Domain.organisation_id, m.Domain.hostname)):
+        if oid in keys:
+            keys[oid]["domains"].add(host)
+    for oid, val in rows(select(m.Claim.entity_id, m.Claim.value).where(m.Claim.attribute == "declared_domain",
+                                                                         m.Claim.status == "accepted")):
+        if oid in keys and isinstance(val, str):
+            keys[oid]["domains"].add(val)
+    for oid, tid in rows(select(m.OrgRole.organisation_id, m.OrgRole.tribe_id).where(m.OrgRole.tribe_id.is_not(None))):
+        if oid in keys:
+            keys[oid]["tribes"].add(tid)
+    for k in keys.values():
+        k["stems"] = {domain_stem(d) for d in k["domains"]}
+    return keys
+
+
 def _keys(store: Store, org_id: int) -> dict:
-    names = {compact(n) for n in store.org_names(org_id) if compact(n)}
-    brands = {b for b in store.s.scalars(select(m.Brand.name_norm).where(m.Brand.organisation_id == org_id))}
-    names |= {b.replace(" ", "") for b in brands}
-    domains = set(store.org_domains(org_id))
-    org = store.s.get(m.Organisation, org_id)
-    groups = {org.parent_id} - {None}
-    tribes = set(store.s.scalars(select(m.OrgRole.tribe_id).where(m.OrgRole.organisation_id == org_id,
-                                                                  m.OrgRole.tribe_id.is_not(None))))
-    return {"names": names, "domains": domains, "stems": {domain_stem(d) for d in domains}, "groups": groups, "tribes": tribes}
+    return _all_keys(store, {org_id}).get(org_id) or {"names": set(), "domains": set(), "stems": set(),
+                                                      "groups": set(), "tribes": set()}
 
 
-def possible_match_sweep(store: Store) -> dict:
-    """Compare every organisation against every organisation that has an our_relationship row."""
+def possible_match_sweep(store: Store, only: set[int] | None = None) -> dict:
+    """Compare organisations against every organisation that has an our_relationship row.
+
+    only: restrict the candidates to these organisations (e.g. the one just researched). If one of them is itself
+    a relationship organisation, everything is compared against it, so the full sweep runs.
+    """
     ours = list(store.s.scalars(select(m.OurRelationship).where(m.OurRelationship.status.in_(LIVE_LIKE))))
     rel_orgs = {store.org(o.organisation_id).id: o for o in ours}
-    others = list(store.s.scalars(select(m.Organisation.id).where(m.Organisation.lifecycle != "merged")))
-    keys = {oid: _keys(store, oid) for oid in others}
+    if only is not None and only & set(rel_orgs):
+        only = None
+    keys = _all_keys(store, None if only is None else set(only) | set(rel_orgs))
+    others = list(keys)
 
     # index other orgs by each key so the sweep is not O(n^2)
     by_name, by_domain, by_group = defaultdict(set), defaultdict(set), defaultdict(set)
