@@ -4,7 +4,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,6 +13,7 @@ from ... import models as m
 from ...auth import _ph, MIN_PASSWORD_LENGTH, create_user
 from ...config import RAW_DIR, REFERENCE_DIR
 from ...scoring import DEFAULT_WEIGHTS, current_weights, rescore, save_weights
+from ...store import Store
 from ..deps import Forbidden, admin_user, current_user, flash, get_db, render, store_for
 
 router = APIRouter(prefix="/admin")
@@ -258,3 +259,112 @@ def reset_route(request: Request, confirm: str = Form(""), db: Session = Depends
 def audit_page(request: Request, db: Session = Depends(get_db), user=Depends(admin_view)):
     rows = list(db.scalars(select(m.AuditLog).order_by(m.AuditLog.at.desc(), m.AuditLog.id.desc()).limit(300)))
     return render(request, "admin_audit.html", user, rows=rows, section="audit")
+
+
+# ---------------------------------------------------------------- research and enrichment (Phase 4)
+JOBS = {"ahrefs_fill_traffic", "ahrefs_serp_snapshot", "research"}
+
+
+def _session_factory():
+    from sqlalchemy.orm import sessionmaker
+    from ...db import engine
+    return sessionmaker(bind=engine(), future=True)
+
+
+def _run_job(name: str, actor: str, kwargs: dict) -> None:
+    """Runs after the response (FastAPI background task) in its own session; the run is logged in job_run."""
+    from ... import enrich, research
+    s = _session_factory()()
+    try:
+        st = Store(s, actor=actor)
+        fn = {"ahrefs_fill_traffic": enrich.fill_traffic, "ahrefs_serp_snapshot": enrich.serp_snapshot,
+              "research": research.research_batch}[name]
+        fn(st, **kwargs)
+        s.commit()
+    except Exception:
+        s.commit()  # keep the failed run's log and anything already paid for
+    finally:
+        s.close()
+
+
+@router.get("/research")
+def research_page(request: Request, db: Session = Depends(get_db), user=Depends(admin_view)):
+    import os
+    from ... import budget
+    from ...research import DEFAULT_MODEL, PRICES
+    runs = list(db.scalars(select(m.JobRun).order_by(m.JobRun.id.desc()).limit(25)))
+    kws = list(db.scalars(select(m.TrackedKeyword).order_by(m.TrackedKeyword.keyword)))
+    return render(request, "admin_research.html", user, section="research", budgets=budget.summary(db), runs=runs,
+                  keywords=kws, keys={"anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
+                                      "ahrefs": bool(os.environ.get("AHREFS_API_KEY"))},
+                  models=list(PRICES), default_model=DEFAULT_MODEL,
+                  running={r.job for r in runs if r.status == "running"}, ahrefs_plan=request.session.pop("ahrefs_plan", None))
+
+
+@router.post("/research/budget")
+async def research_budget(request: Request, db: Session = Depends(get_db), user=Depends(admin_user)):
+    from ... import budget
+    form = await request.form()
+    try:
+        for p in m.PROVIDERS:
+            if form.get(p) not in (None, ""):
+                budget.set_limit(db, p, float(form.get(p)), user.username)
+        flash(request, "Budgets saved.")
+    except ValueError as e:
+        flash(request, f"Not saved: {e}")
+    return RedirectResponse("/admin/research", status_code=303)
+
+
+@router.post("/research/keywords")
+def research_keywords(request: Request, action: str = Form(...), keyword: str = Form(""), kid: int = Form(0),
+                      db: Session = Depends(get_db), user=Depends(admin_user)):
+    from ...enrich import seed_keywords
+    if action == "seed":
+        n = seed_keywords(db, user.username)
+        flash(request, f"Added {n} starter keywords." if n else "Keywords already exist; nothing added.")
+    elif action == "add" and keyword.strip():
+        kw = keyword.strip().lower()[:120]
+        if not db.scalar(select(m.TrackedKeyword.id).where(m.TrackedKeyword.keyword == kw)):
+            db.add(m.TrackedKeyword(keyword=kw, active=True))
+            store_for(db, user).audit("keywords.add", "tracked_keyword", None, None, {"keyword": kw})
+        flash(request, f"Tracking '{kw}'.")
+    elif action in ("pause", "resume") and kid:
+        k = db.get(m.TrackedKeyword, kid)
+        if k:
+            k.active = action == "resume"
+            store_for(db, user).audit(f"keywords.{action}", "tracked_keyword", kid, None, {"keyword": k.keyword})
+    return RedirectResponse("/admin/research#keywords", status_code=303)
+
+
+@router.post("/research/run")
+def research_run(request: Request, background: BackgroundTasks, job_name: str = Form(...), n: int = Form(20),
+                 model: str = Form(""), db: Session = Depends(get_db), user=Depends(admin_user)):
+    import os
+    from ...research import DEFAULT_MODEL, PRICES
+    if job_name not in JOBS:
+        raise HTTPException(400, "Unknown job")
+    need = "ANTHROPIC_API_KEY" if job_name == "research" else "AHREFS_API_KEY"
+    if not os.environ.get(need):
+        flash(request, f"{need} isn't set in Railway yet, so this can't run.")
+        return RedirectResponse("/admin/research", status_code=303)
+    if db.scalar(select(m.JobRun.id).where(m.JobRun.job == job_name, m.JobRun.status == "running")):
+        flash(request, "That job is already running. Wait for it to finish.")
+        return RedirectResponse("/admin/research", status_code=303)
+    n = max(1, min(n, 500))
+    kwargs = {"ahrefs_fill_traffic": {"limit": n}, "ahrefs_serp_snapshot": {},
+              "research": {"n": n, "model": model if model in PRICES else DEFAULT_MODEL}}[job_name]
+    store_for(db, user).audit("job.start", "job_run", None, None, {"job": job_name, **kwargs})
+    background.add_task(_run_job, job_name, user.username, kwargs)
+    flash(request, f"Started {job_name.replace('_', ' ')}. Reload this page to follow it; results appear in the log below"
+                   f"{' and research findings in the review inbox' if job_name == 'research' else ''}.")
+    return RedirectResponse("/admin/research", status_code=303)
+
+
+@router.post("/research/ahrefs-plan")
+def research_ahrefs_plan(request: Request, db: Session = Depends(get_db), user=Depends(admin_user)):
+    from ...sources.ahrefs import AhrefsClient, AhrefsError
+    try:
+        request.session["ahrefs_plan"] = AhrefsClient(db).subscription()
+    except AhrefsError as e:
+        flash(request, str(e))
+    return RedirectResponse("/admin/research", status_code=303)

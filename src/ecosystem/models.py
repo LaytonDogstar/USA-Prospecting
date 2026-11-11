@@ -53,8 +53,9 @@ COMPLIANCE_FLAG_TYPES = (
 COMPLIANCE_VALUES = ("clear", "review", "blocked")
 REVIEW_KINDS = (
     "possible_match", "dedup", "new_entrant", "material_change", "low_confidence", "parse_failure",
-    "relationship_confirm", "manual_check",
+    "relationship_confirm", "manual_check", "research",
 )
+PROVIDERS = ("anthropic", "ahrefs", "similarweb")
 USER_ROLES = ("admin", "viewer")
 PERSON_ROLE_CATEGORIES = {
     "affiliate_partnerships": "Affiliate / partnerships manager",
@@ -416,6 +417,16 @@ class ApiUsage(Base):
     units: Mapped[float] = mapped_column(Numeric(14, 2))
     cost_usd: Mapped[float] = mapped_column(Numeric(10, 4))
     at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+
+class ProviderBudget(Base):
+    """Monthly cap per external provider. Anthropic in USD; Ahrefs and Similarweb in their own units."""
+    __tablename__ = "provider_budget"
+    provider: Mapped[str] = mapped_column(String(20), primary_key=True)
+    monthly_limit: Mapped[float] = mapped_column(Numeric(14, 2))
+    unit: Mapped[str] = mapped_column(String(10))  # usd | units
+    updated_by: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
 
 
 class HttpCache(Base):

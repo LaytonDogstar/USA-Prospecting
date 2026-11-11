@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field %}
+{% block title %}Research and budgets{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Admin</h1></div></div>
+{% include "_admin_nav.html" %}
+
+<div class="grid g2">
+<section class="panel">
+  <h2>API keys</h2>
+  <table class="compact"><tbody>
+    <tr><td>Anthropic (<span class="mono">ANTHROPIC_API_KEY</span>)</td><td>{% if keys.anthropic %}<span class="chip good">set</span>{% else %}<span class="chip warn">not set</span>{% endif %}</td></tr>
+    <tr><td>Ahrefs (<span class="mono">AHREFS_API_KEY</span>)</td><td>{% if keys.ahrefs %}<span class="chip good">set</span>{% else %}<span class="chip warn">not set</span>{% endif %}</td></tr>
+  </tbody></table>
+  <p class="small muted">Keys are set in Railway (USA-Prospecting service → Variables), never here, and are never shown. Saving a variable redeploys the app.</p>
+  {% if keys.ahrefs %}
+  <form method="post" action="/admin/research/ahrefs-plan" class="row">{{ csrf_field(csrf) }}<button>Check Ahrefs plan (free)</button></form>
+  {% endif %}
+  {% if ahrefs_plan %}<table class="compact small"><tbody>
+    {% for k, v in ahrefs_plan.items() %}<tr><td>{{ k | replace('_', ' ') }}</td><td>{{ v }}</td></tr>{% endfor %}
+  </tbody></table>{% endif %}
+</section>
+
+<section class="panel">
+  <h2>Monthly budgets <span class="small muted">this calendar month</span></h2>
+  <form method="post" action="/admin/research/budget" class="stack">{{ csrf_field(csrf) }}
+    <table class="compact"><thead><tr><th>Provider</th><th class="num">Used</th><th class="num">Limit</th><th></th></tr></thead><tbody>
+    {% for b in budgets %}
+      <tr><td>{{ b.provider | capitalize }}</td>
+        <td class="num">{{ ('$%.2f' | format(b.used)) if b.unit == 'usd' else (b.used | num) ~ ' units' }}
+          <div class="small muted">{{ '%.0f' | format(b.share * 100) }}%</div></td>
+        <td class="num"><input name="{{ b.provider }}" value="{{ '%.0f' | format(b.limit) }}" size="8" inputmode="decimal"></td>
+        <td class="small muted">{{ 'USD' if b.unit == 'usd' else 'units' }}</td></tr>
+    {% endfor %}
+    </tbody></table>
+    <button>Save budgets</button>
+  </form>
+  <p class="small muted">Every job checks the budget before each call and stops when the next call would go over. Ahrefs usage is corrected to what Ahrefs actually charged after each run.</p>
+</section>
+</div>
+
+<section class="panel" style="margin-top:16px">
+  <h2>Run</h2>
+  <div class="grid g3">
+    <form method="post" action="/admin/research/run" class="stack">{{ csrf_field(csrf) }}
+      <input type="hidden" name="job_name" value="research">
+      <h3>Research pass (Anthropic)</h3>
+      <p class="small">Researches unresearched CFPB companies, largest first: type, owner, brands, loan range, states, partner lists, compliance. Every fact must cite a page the research opened. Findings go to Review → Research findings for you to accept.</p>
+      <div class="row"><label>Companies <input name="n" value="20" size="4" inputmode="numeric"></label>
+        <label>Model <select name="model">{% for mdl in models %}<option {{ 'selected' if mdl == default_model }}>{{ mdl }}</option>{% endfor %}</select></label></div>
+      <button class="primary" {{ 'disabled' if not keys.anthropic or 'research' in running }}>{{ 'Running…' if 'research' in running else 'Start research' }}</button>
+      <p class="small muted">Estimated $0.10–0.40 per company; the pilot reports the real figure.</p>
+    </form>
+    <form method="post" action="/admin/research/run" class="stack">{{ csrf_field(csrf) }}
+      <input type="hidden" name="job_name" value="ahrefs_fill_traffic">
+      <h3>Fill traffic (Ahrefs)</h3>
+      <p class="small">US organic visits, keywords and paid search for organisations with a website and no Ahrefs figure from the last 30 days. Our relationships and A/B priority first.</p>
+      <label>Organisations <input name="n" value="50" size="4" inputmode="numeric"></label>
+      <button class="primary" {{ 'disabled' if not keys.ahrefs or 'ahrefs_fill_traffic' in running }}>{{ 'Running…' if 'ahrefs_fill_traffic' in running else 'Fill traffic' }}</button>
+      <p class="small muted">About 50 units each, so 50 organisations ≈ 2,500 units.</p>
+    </form>
+    <form method="post" action="/admin/research/run" class="stack">{{ csrf_field(csrf) }}
+      <input type="hidden" name="job_name" value="ahrefs_serp_snapshot">
+      <h3>Search results snapshot (Ahrefs)</h3>
+      <p class="small">Top 20 Google results for each tracked keyword, with page-level traffic. New sites appear in Review as new entrants.</p>
+      <button class="primary" {{ 'disabled' if not keys.ahrefs or 'ahrefs_serp_snapshot' in running }}>{{ 'Running…' if 'ahrefs_serp_snapshot' in running else 'Take snapshot' }}</button>
+      <p class="small muted">About 300 units per keyword.</p>
+    </form>
+  </div>
+</section>
+
+<div class="grid g2" style="margin-top:16px">
+<section class="panel" id="keywords">
+  <h2>Tracked keywords <span class="small muted">{{ keywords | selectattr('active') | list | length }} active</span></h2>
+  {% if not keywords %}<form method="post" action="/admin/research/keywords">{{ csrf_field(csrf) }}<button name="action" value="seed">Add the starter list</button></form>{% endif %}
+  <table class="compact"><tbody>
+  {% for k in keywords %}<tr><td class="{{ '' if k.active else 'muted' }}">{{ k.keyword }}</td>
+    <td><form method="post" action="/admin/research/keywords" class="inline">{{ csrf_field(csrf) }}<input type="hidden" name="kid" value="{{ k.id }}">
+      <button name="action" value="{{ 'pause' if k.active else 'resume' }}">{{ 'Pause' if k.active else 'Resume' }}</button></form></td></tr>{% endfor %}
+  </tbody></table>
+  <form method="post" action="/admin/research/keywords" class="row">{{ csrf_field(csrf) }}
+    <input name="keyword" placeholder="e.g. payday loans texas" size="28"><button name="action" value="add">Add keyword</button></form>
+</section>
+
+<section class="panel table-wrap">
+  <h2>Recent runs</h2>
+  <table class="compact"><thead><tr><th>Job</th><th>Status</th><th>When</th><th class="num">Facts</th><th class="num">Cost</th><th>Result</th></tr></thead><tbody>
+  {% for r in runs %}
+    <tr><td class="small">{{ r.job | replace('_', ' ') }}<div class="muted">{{ r.args.get('started_by', '') }}</div></td>
+      <td><span class="chip {{ 'good' if r.status == 'done' else 'warn' if r.status in ('running', 'budget_stopped') else 'bad' if r.status == 'failed' else '' }}">{{ r.status | replace('_', ' ') }}</span></td>
+      <td class="small muted" style="white-space:nowrap">{{ r.started_at.strftime('%d %b %H:%M') if r.started_at else '' }}</td>
+      <td class="num">{{ r.claims_written }}</td><td class="num">{{ '$%.2f' | format(r.cost_usd or 0) }}</td>
+      <td class="small">{% if r.args.get('result') %}{% for k, v in r.args.result.items() %}{{ k | replace('_', ' ') }} {{ v }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}
+        {% if r.errors %}<details><summary>{{ r.errors | length }} problem{{ 's' if r.errors | length != 1 }}</summary><ul>{% for e in r.errors[:20] %}<li>{{ e.message }}</li>{% endfor %}</ul></details>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="6" class="muted">No runs yet.</td></tr>{% endfor %}
+  </tbody></table>
+</section>
+</div>
+{% endblock %}

@@ -46,8 +46,15 @@ def inbox(request: Request, kind: str = "", status: str = "open", page: int = 1,
     order = [strength, m.ReviewItem.id] if status == "open" else [m.ReviewItem.decided_at.desc()]
     items = list(db.scalars(q.order_by(*order).limit(PAGE).offset((max(page, 1) - 1) * PAGE)))
     summaries = _summaries(db, {i for it in items for i in it.entity_ids})
+    proposed = {}
+    for it in items:
+        if it.kind == "research" and it.entity_ids:
+            proposed[it.id] = [
+                (c, db.get(m.Source, c.source_id)) for c in db.scalars(select(m.Claim).where(
+                    m.Claim.entity_id == it.entity_ids[0], m.Claim.job_run_id == it.payload.get("run"),
+                    m.Claim.method.like("research:%")).order_by(m.Claim.attribute, m.Claim.id))]
     return render(request, "review.html", user, items=items, kind=kind, status=status, counts=counts, labels=REVIEW_LABELS,
-                  summaries=summaries, total=total, page=page, pages=(total - 1) // PAGE + 1 if total else 1)
+                  summaries=summaries, proposed=proposed, total=total, page=page, pages=(total - 1) // PAGE + 1 if total else 1)
 
 
 @router.post("/review/{item_id}/decide")
@@ -84,6 +91,19 @@ def decide(item_id: int, request: Request, action: str = Form(...), note: str = 
             child_org.parent_id = st.org(parent).id
         st.audit("organisation.link", "organisation", child_org.id, None, {"parent": pname, "note": note})
         it.status, done = "approved", f"Linked: {pname} owns {child_org.display_name}."
+    elif action == "approve" and it.kind == "research":
+        from ...matching import possible_match_sweep, shared_key_suggestions
+        from ...research import apply_research
+        from ...scoring import rescore
+        n = apply_research(st, it)
+        shared_key_suggestions(st)
+        possible_match_sweep(st)
+        rescore(st)
+        it.status, done = "approved", f"Accepted {n} researched facts and re-scored."
+    elif action == "reject" and it.kind == "research":
+        from ...research import reject_research
+        n = reject_research(st, it)
+        it.status, done = "rejected", f"Rejected {n} researched facts."
     elif action == "approve":
         it.status, done = "approved", "Approved."
     elif action == "reject":

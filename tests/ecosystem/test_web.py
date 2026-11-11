@@ -276,3 +276,23 @@ def test_recent_activity_folds_repeats(web, session):
     acts = recent_activity(session)
     assert all(not (a["action"] == b["action"] and a["actor"] == b["actor"]) for a, b in zip(acts, acts[1:]))
     assert any(a["count"] > 1 for a in acts)
+
+
+def test_admin_research_page(web, session, monkeypatch):
+    login(web)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AHREFS_API_KEY", raising=False)
+    page = web.get("/admin/research").text
+    assert "Monthly budgets" in page and "not set" in page
+    tok = csrf(web, "/admin/research")
+    r = web.post("/admin/research/run", data={"job_name": "research", "n": "5", "csrf": tok})
+    assert "ANTHROPIC_API_KEY isn&#39;t set" in r.text
+    web.post("/admin/research/budget", data={"anthropic": "150", "ahrefs": "90000", "csrf": csrf(web, "/admin/research")})
+    session.expire_all()
+    assert float(session.get(m.ProviderBudget, "anthropic").monthly_limit) == 150
+    web.post("/admin/research/keywords", data={"action": "seed", "csrf": csrf(web, "/admin/research")})
+    assert "bad credit loans" in web.get("/admin/research").text
+    # viewers can't reach it
+    web.post("/logout", data={"csrf": csrf(web)})
+    login(web, "reader", "viewer-password-1")
+    assert web.get("/admin/research").status_code == 403

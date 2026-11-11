@@ -15,6 +15,7 @@ REVIEW_LABELS = {
     "parse_failure": "Cells that need reading by hand",
     "relationship_confirm": "Relationships to confirm",
     "manual_check": "Manual checks (e.g. licence lookups)",
+    "research": "Research findings to accept",
 }
 
 

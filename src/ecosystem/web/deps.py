@@ -103,6 +103,8 @@ def fmt_value(v) -> str:
     if isinstance(v, list):
         return ", ".join(fmt_value(x) for x in v)
     if isinstance(v, dict):
+        if "value" in v and "quote" in v:  # researched fact: show the value, then the supporting quote
+            return f"{v['value']} (“{v['quote'][:160]}”)" if v.get("quote") else str(v["value"])
         if "name" in v and "domains" in v:
             return v["name"] + (f" ({', '.join(v['domains'])})" if v["domains"] else "")
         if "domain" in v:

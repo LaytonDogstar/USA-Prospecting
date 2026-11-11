@@ -9,7 +9,7 @@ Two tools live here:
 - **`src/ecosystem/`: the US lead-gen industry map ("Ecosystem").** This is the main build. Postgres + Python. Its plan and phases are in `docs/PLAN.md`.
 - **`src/prospecting/`: the older SQLite tool.** It builds buyer profiles from pingtree exports and the 2026-09 targets workbook. It is kept working until the Ecosystem app covers it; its buyer profiles will feed buyer-value scoring. Don't extend it.
 
-Status: Phases 1 (import and data model), 2 (web app: login, home, tables, entity pages with evidence drawer, review inbox, admin) and 3 (ecosystem map and state map) are done and deployed on Railway. Phase 4 (enrichment of existing entities) is next.
+Status: Phases 1–3 are done and deployed on Railway. Phase 4 (enrichment) is built: Ahrefs traffic and SERP jobs and the Anthropic research pass, run from Admin → Research & budgets once `AHREFS_API_KEY` / `ANTHROPIC_API_KEY` are set in Railway. Apollo/contact enrichment comes later.
 
 ## Rules that matter
 
@@ -42,6 +42,16 @@ src/ecosystem/
                  (groups of 2+ fold; expand=<ids> opens them), our pingtree node drawn from our_relationship
   footprint.py   which states a lender serves (listed / nationwide / not on its exclusion list) and the
                  state map summary; STATE_SERVES_SQL is the same rule for the lenders table filter
+  budget.py      monthly caps per provider (provider_budget), check() before every call, api_usage ledger
+  jobs.py        job() context: every run logged in job_run (status done / budget_stopped / failed, cost, errors)
+  cache.py       http_cache for external responses (30-day window for Ahrefs)
+  sources/ahrefs.py  Ahrefs API v3 client (metrics, SERP overview, plan usage); units estimated before the call
+                 and corrected to the plan's actual usage after each job
+  enrich.py      fill_traffic (Ahrefs metrics → accepted measurement claims + material-change review items),
+                 serp_snapshot (tracked keywords → page entities with page traffic; unknown sites → new_entrant)
+  research.py    research pass with Claude (web_search/web_fetch + strict record_findings tool). Findings must cite
+                 a URL from the run's own search/fetch results or they are dropped; kept findings are *proposed*
+                 claims plus one 'research' review item; apply_research / reject_research on the decision
   cli.py         python -m ecosystem <command>
   web/           FastAPI app (server-rendered Jinja, no front-end build)
     app.py       create_app(): sessions, security headers, routers
@@ -56,7 +66,7 @@ src/ecosystem/
     static/      style.css (light/dark tokens), app.js (evidence drawer, confirm prompts), map.js (Cytoscape
                  map; text inserted with textContent only), vendor/ (Cytoscape.js 3.30.4, MIT, served locally
                  because the CSP only allows same-origin scripts)
-migrations/      Alembic. 0001 = initial schema + entity_current view; 0002 = latest_score view
+migrations/      Alembic. 0001 = initial schema + entity_current view; 0002 = latest_score view; 0003 = provider_budget
 tests/ecosystem/ pytest; conftest builds made-up workbooks. test_acceptance_real_data.py runs only
                  when the real files and data/reference/acceptance.json are present.
 ```
@@ -90,6 +100,11 @@ python -m ecosystem review-decide 153 approve --merge-into <org id> --note "same
 python -m ecosystem create-user layton --role admin
 python -m ecosystem rescore
 python -m ecosystem reset-data --yes  # clear imported data, re-import data/raw + data/reference in order
+python -m ecosystem ahrefs-plan       # plan and usage (free); needs AHREFS_API_KEY
+python -m ecosystem ahrefs-traffic --limit 50
+python -m ecosystem ahrefs-serp
+python -m ecosystem research --n 20   # needs ANTHROPIC_API_KEY; findings go to Review
+python -m ecosystem budget-set anthropic 300
 SECRET_KEY=dev uvicorn ecosystem.web:app --reload   # http://localhost:8000
 pytest                                # needs TEST_DATABASE_URL; the schema is rebuilt there
 ```
@@ -100,7 +115,7 @@ A throwaway local Postgres: `initdb -D /var/tmp/pgdev/data -U postgres -A trust`
 
 One `web` service (see `railway.json`): on start it runs migrations, `bootstrap-admin` (creates the first admin from `ADMIN_USERNAME` / `ADMIN_PASSWORD` only when there are no users), then uvicorn. Health check `/healthz`.
 
-Variables: `DATABASE_URL` (from the Railway Postgres), `SECRET_KEY` (long random), `ECOSYSTEM_ENV=production` (secure cookies, HSTS, refuses to start without `SECRET_KEY`), `ECOSYSTEM_DATA_DIR=/data` with a **Railway volume mounted at /data** so uploaded spreadsheets and reference CSVs survive deploys. Turn on Postgres backups. Upload the files under Admin → Imports. Uploading runs the import, the sweeps and a re-score. Uploads are recognised by their contents (`importers.detect_kind`), not their names, and stored under the names the importer expects. Order matters (targets → traffic → owner groups → seeds): if a file arrives after ones that should come later and nobody has made decisions or edits yet, the upload re-imports everything in order automatically; otherwise it warns. "Reset and re-import" on the same page does it by hand: which clears imported data (keeping users, weights and the audit log) and re-imports the files on the volume in the right order.
+Variables: `ANTHROPIC_API_KEY`, `AHREFS_API_KEY` (set by the owner in Railway; never in chat or git), optional `RESEARCH_MODEL` (default claude-sonnet-5-5), `DATABASE_URL` (from the Railway Postgres), `SECRET_KEY` (long random), `ECOSYSTEM_ENV=production` (secure cookies, HSTS, refuses to start without `SECRET_KEY`), `ECOSYSTEM_DATA_DIR=/data` with a **Railway volume mounted at /data** so uploaded spreadsheets and reference CSVs survive deploys. Turn on Postgres backups. Upload the files under Admin → Imports. Uploading runs the import, the sweeps and a re-score. Uploads are recognised by their contents (`importers.detect_kind`), not their names, and stored under the names the importer expects. Order matters (targets → traffic → owner groups → seeds): if a file arrives after ones that should come later and nobody has made decisions or edits yet, the upload re-imports everything in order automatically; otherwise it warns. "Reset and re-import" on the same page does it by hand: which clears imported data (keeping users, weights and the audit log) and re-imports the files on the volume in the right order.
 
 Railway project "Prsopecting Tool": service `USA-Prospecting` (deploys this repo on push), `Postgres` (private only, no public address), volume at /data. Live URL https://usa-prospecting-production.up.railway.app. `railway.json` (Config as Code) is deprecated by Railway and stops working on 2026-12-01: migrate with `railway config migrate --lang py --variables unmanaged` then `railway config migrate cutover` (a live change: do it with the owner's go-ahead, ideally after merging to `main`, since the generated file pins the branch).
 
@@ -109,7 +124,7 @@ Schema changes: edit `models.py`, then `alembic revision --autogenerate -m "..."
 ## Conventions
 
 - Python 3.11+, type hints, SQLAlchemy 2 style (`select()`, `Mapped[...]`).
-- Claim `method` is `import:v1`, `parse:v1`, `seed`, or a job name plus version. Bump the version when its logic changes.
+- Claim `method` is `import:v1`, `parse:v2`, `seed`, `ahrefs:metrics:v1`, `ahrefs:serp:v1`, `research:<model>:v1`, or a job name plus version. Bump the version when its logic changes.
 - Confidence: `high` / `medium` / `low`. Spreadsheet research uses the row's "Research confidence"; "Earlier research this chat" and "Known platform" rows are `low` and get a review item.
 - Review items are idempotent through `dedupe_key`.
 - British spelling in user-facing text (organisation, licence, programme).

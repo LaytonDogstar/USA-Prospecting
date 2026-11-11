@@ -102,6 +102,16 @@ def main(argv=None) -> int:
     rs = sub.add_parser("reset-data", help="clear imported data and re-import the files on disk in order")
     rs.add_argument("--yes", action="store_true", help="required: confirms the reset")
     sub.add_parser("bootstrap-admin", help="create the first admin from ADMIN_USERNAME / ADMIN_PASSWORD")
+    sub.add_parser("ahrefs-plan", help="show the Ahrefs plan, limits and usage (free)")
+    at = sub.add_parser("ahrefs-traffic", help="fill missing Ahrefs traffic figures")
+    at.add_argument("--limit", type=int, default=50)
+    sub.add_parser("ahrefs-serp", help="snapshot the top 20 results for each tracked keyword")
+    rs2 = sub.add_parser("research", help="research pass on unresearched CFPB companies (findings go to Review)")
+    rs2.add_argument("--n", type=int, default=20)
+    rs2.add_argument("--model", default=None)
+    bs = sub.add_parser("budget-set", help="set a provider's monthly budget")
+    bs.add_argument("provider", choices=["anthropic", "ahrefs", "similarweb"])
+    bs.add_argument("limit", type=float)
     rp = sub.add_parser("reconcile", help="print the count reconciliation")
     rp.add_argument("--json", action="store_true")
     rl = sub.add_parser("review-list")
@@ -151,6 +161,22 @@ def main(argv=None) -> int:
             print(possible_match_sweep(store))
         elif a.cmd == "rescore":
             print(rescore(store))
+        elif a.cmd == "ahrefs-plan":
+            from .sources.ahrefs import AhrefsClient
+            print(json.dumps(AhrefsClient(s).subscription(), indent=2))
+        elif a.cmd == "ahrefs-traffic":
+            from .enrich import fill_traffic
+            print(fill_traffic(store, limit=a.limit))
+        elif a.cmd == "ahrefs-serp":
+            from .enrich import serp_snapshot
+            print(serp_snapshot(store))
+        elif a.cmd == "research":
+            from .research import DEFAULT_MODEL, research_batch
+            print(json.dumps(research_batch(store, n=a.n, model=a.model or DEFAULT_MODEL), indent=2))
+        elif a.cmd == "budget-set":
+            from .budget import set_limit
+            set_limit(s, a.provider, a.limit, store.actor)
+            print(f"{a.provider} monthly budget set to {a.limit:g}")
         elif a.cmd == "reset-data":
             if not a.yes:
                 print("This clears all imported data, review decisions and relationship edits. Re-run with --yes.",

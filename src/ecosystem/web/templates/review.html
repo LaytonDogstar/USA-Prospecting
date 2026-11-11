@@ -42,6 +42,20 @@
   </div>
   {% if it.payload.get('reasons') %}<ul class="small">{% for r in it.payload.reasons %}<li>{{ r }}</li>{% endfor %}</ul>{% endif %}
   {% for k in ('text', 'field', 'evidence_source', 'evidence') %}{% if it.payload.get(k) %}<p class="small"><span class="muted">{{ k | replace('_', ' ') }}:</span> {{ it.payload[k] }}</p>{% endif %}{% endfor %}
+  {% if it.kind == 'research' %}
+    {% if it.payload.summary %}<p class="small"><b>Summary:</b> {{ it.payload.summary }}</p>{% endif %}
+    {% if it.payload.is_us_consumer_lender == false %}<p class="warnbox small">The researcher says this is <b>not a US consumer lender</b>. Consider screening it out.</p>{% endif %}
+    <p class="small muted">{{ it.payload.model }} · cost ${{ '%.3f' | format(it.payload.cost_usd or 0) }}{% if it.payload.rejected_uncited %} · {{ it.payload.rejected_uncited }} finding{{ 's' if it.payload.rejected_uncited != 1 }} dropped because the cited page wasn't one the research actually opened{% endif %}</p>
+    <table class="compact"><tbody>
+    {% for c, src in proposed.get(it.id, []) %}
+      <tr><td class="small" style="white-space:nowrap">{{ c.attribute | replace('_text', '') | replace('_', ' ') }}</td>
+        <td class="small"><b>{{ c.value.value if c.value is mapping else c.value }}</b>
+          {% if c.value is mapping and c.value.quote %}<div class="muted">“{{ c.value.quote }}”</div>{% endif %}</td>
+        <td class="small"><span class="chip {{ 'good' if c.confidence == 'high' else 'warn' if c.confidence == 'low' else '' }}">{{ c.confidence }}</span></td>
+        <td class="small">{% if src and src.url %}<a href="{{ src.url }}" rel="noopener noreferrer" target="_blank">{{ src.url | truncate(48, True) }}</a>{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table>
+  {% endif %}
   {% set ids = it.entity_ids %}
   {% if ids | length == 2 %}<div class="pair">{{ side(summaries.get(ids[0])) }}{{ side(summaries.get(ids[1])) }}</div>
   {% elif ids %}<div class="pair">{{ side(summaries.get(ids[0])) }}</div>{% endif %}
@@ -60,6 +74,9 @@
       <button name="action" value="link:{{ b.id }}:{{ a.id }}" title="{{ b.display_name }} owns {{ a.display_name }}">Right owns left</button>
       {% endif %}
       <button name="action" value="reject">Not related</button>
+    {% elif it.kind == 'research' %}
+      <button name="action" value="approve" class="primary">Accept these facts</button>
+      <button name="action" value="reject">Reject all</button>
     {% else %}
       <button name="action" value="approve" class="primary">Approve</button>
       <button name="action" value="reject">Reject</button>
