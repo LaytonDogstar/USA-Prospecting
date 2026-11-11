@@ -24,6 +24,34 @@ TRIBAL_WORDS = re.compile(r"\b(tribe|tribal|band|nation|indian|indians|village|r
                           r"ojibwe|pomo|community|reservation)\b", re.I)
 
 
+IMPORT_ORDER = ("targets", "traffic_options", "owner_groups", "relationship_seed")
+
+
+def detect_kind(path: Path) -> str | None:
+    """Recognise an upload by its contents, not its name (browsers add ' (1)', people rename files)."""
+    if path.suffix.lower() == ".xlsx" or path.read_bytes()[:2] == b"PK":
+        try:
+            with open(path, "rb") as fh:  # a file object, so the temporary '.part' name doesn't matter
+                sheets = set(openpyxl.load_workbook(fh, read_only=True).sheetnames)
+        except Exception:
+            return None
+        if {"Universe", "Targets", "Lead-buying strength"} <= sheets:
+            return "targets"
+        if "All options" in sheets:
+            return "traffic_options"
+        return None
+    try:
+        header = path.read_text(encoding="utf-8-sig").splitlines()[0].lower().replace(" ", "")
+    except Exception:
+        return None
+    cols = set(header.split(","))
+    if {"group", "member", "relation"} <= cols:
+        return "owner_groups"
+    if {"name", "role", "status"} <= cols:
+        return "relationship_seed"
+    return None
+
+
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:

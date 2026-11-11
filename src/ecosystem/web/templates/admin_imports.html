@@ -11,7 +11,7 @@
     <input type="file" name="upload" accept=".xlsx,.csv" required>
     <button class="primary">Upload and import</button>
   </form>
-  <p class="small muted">Accepted names: {{ patterns | join(', ') }}. Spreadsheets are stored unchanged. Importing the same file twice does nothing. After the import the possible-match sweep and a re-score run automatically.</p>
+  <p class="small muted">Accepted: {{ patterns | join(', ') }}. Files are recognised by their contents, so the name doesn't matter. Spreadsheets are stored unchanged. Importing the same file twice does nothing. After the import the possible-match sweep and a re-score run automatically.</p>
 </section>
 <section class="panel table-wrap">
   <h2>Imported files</h2>
@@ -26,6 +26,8 @@
 
 <section class="panel" style="margin-top:16px" id="check">
   <h2>Check <span class="small muted">what is in the database now</span></h2>
+  {% if missing %}<div class="warnbox"><b>Not uploaded yet:</b> {{ missing | join(', ') }}. The map is incomplete until all four are in.</div>
+  {% else %}<p class="small"><span class="chip good">all four files uploaded</span></p>{% endif %}
   <p class="small">{% if last_reset %}Last reset {{ last_reset.at.strftime('%d %b %Y %H:%M') }} UTC by {{ last_reset.actor }}.{% else %}Never reset.{% endif %}
     {% if files %} Files imported in this order: {% for f in files | reverse %}{{ f.file_name }}{{ ' → ' if not loop.last }}{% endfor %}.{% endif %}</p>
   <div class="grid g3">

@@ -18,7 +18,7 @@ from ..deps import Forbidden, admin_user, current_user, flash, get_db, render, s
 router = APIRouter(prefix="/admin")
 MAX_UPLOAD = 25 * 1024 * 1024
 UPLOAD_RULES = [  # (filename pattern, folder)
-    (re.compile(r"^targets_\d{8}\.xlsx$"), RAW_DIR),
+    (re.compile(r"^targets_.+\.xlsx$"), RAW_DIR),
     (re.compile(r"^CLE_.*traffic_options.*\.xlsx$"), RAW_DIR),
     (re.compile(r"^owner_groups\.csv$"), REFERENCE_DIR),
     (re.compile(r"^our_relationships_seed\.csv$"), REFERENCE_DIR),
@@ -133,30 +133,53 @@ def users_update(uid: int, request: Request, action: str = Form(...), password: 
 
 
 # ---------------------------------------------------------------- imports
+def _upload_dirs():
+    from ... import config
+    return config.RAW_DIR, config.REFERENCE_DIR
+
+
+def _files_on_disk() -> list[str]:
+    raw, ref = _upload_dirs()
+    return sorted(p.name for d in (raw, ref) if d.exists() for p in d.iterdir()
+                  if any(pat.match(p.name) for pat, _ in UPLOAD_RULES))
+
+
+def _has_human_work(db: Session) -> bool:
+    """Decisions or edits a reset would throw away."""
+    return bool(db.scalar(select(m.ReviewItem.id).where(m.ReviewItem.status != "open").limit(1))
+                or db.scalar(select(m.OurRelationship.id).where(m.OurRelationship.source == "manual").limit(1))
+                or db.scalar(select(m.ComplianceStatus.entity_id).limit(1))
+                or db.scalar(select(m.Person.id).limit(1)))
+
+
 @router.get("/imports")
 def imports_page(request: Request, db: Session = Depends(get_db), user=Depends(admin_view)):
-    files = list(db.scalars(select(m.ImportFile).order_by(m.ImportFile.imported_at.desc())))
-    on_disk = sorted(p.name for d in (RAW_DIR, REFERENCE_DIR) if d.exists() for p in d.iterdir()
-                     if any(pat.match(p.name) for pat, _ in UPLOAD_RULES))
+    files = list(db.scalars(select(m.ImportFile).order_by(m.ImportFile.imported_at.desc(), m.ImportFile.id.desc())))
     from ...reconcile import report
     last_reset = db.scalar(select(m.AuditLog).where(m.AuditLog.action == "data.reset").order_by(m.AuditLog.at.desc()))
+    on_disk = _files_on_disk()
+    missing = [label for label, pat in (("the targets spreadsheet", UPLOAD_RULES[0][0]),
+                                        ("the traffic options spreadsheet", UPLOAD_RULES[1][0]),
+                                        ("owner_groups.csv", UPLOAD_RULES[2][0]),
+                                        ("our_relationships_seed.csv", UPLOAD_RULES[3][0]))
+               if not any(pat.match(n) for n in on_disk)]
     return render(request, "admin_imports.html", user, files=files, section="imports", on_disk=on_disk,
-                  check=report(db), last_reset=last_reset,
-                  patterns=["targets_YYYYMMDD.xlsx", "CLE_…traffic_options….xlsx", "owner_groups.csv",
+                  check=report(db), last_reset=last_reset, missing=missing,
+                  patterns=["the targets workbook (.xlsx)", "the traffic options workbook (.xlsx)", "owner_groups.csv",
                             "our_relationships_seed.csv"])
 
 
 @router.post("/imports")
 async def imports_upload(request: Request, upload: UploadFile = File(...), db: Session = Depends(get_db),
                          user=Depends(admin_user)):
-    name = Path(upload.filename or "").name
-    folder = next((d for pat, d in UPLOAD_RULES if pat.match(name)), None)
-    if folder is None:
-        flash(request, f"'{name}' isn't a file name the importer knows. Expected one of: targets_YYYYMMDD.xlsx, "
-                       "CLE_…traffic_options….xlsx, owner_groups.csv, our_relationships_seed.csv.")
-        return RedirectResponse("/admin/imports", status_code=303)
-    folder.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(delete=False, dir=folder, suffix=".part") as tmp:
+    from datetime import date
+
+    from ...cli import import_all, reset_data
+    from ...importers import IMPORT_ORDER, detect_kind
+    raw, ref = _upload_dirs()
+    original = Path(upload.filename or "upload").name
+    raw.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(delete=False, dir=raw, suffix=".part") as tmp:
         size = 0
         while chunk := await upload.read(1 << 20):
             size += len(chunk)
@@ -166,19 +189,57 @@ async def imports_upload(request: Request, upload: UploadFile = File(...), db: S
                 flash(request, "File too large (25 MB max).")
                 return RedirectResponse("/admin/imports", status_code=303)
             tmp.write(chunk)
-    target = folder / name
-    if target.exists() and name.endswith(".xlsx"):
-        flash(request, f"{name} is already uploaded. Spreadsheets are kept untouched; upload a new dated file instead.")
-        Path(tmp.name).unlink(missing_ok=True)
+    tmp_path = Path(tmp.name)
+    kind = detect_kind(tmp_path)
+    if kind is None:
+        tmp_path.unlink(missing_ok=True)
+        flash(request, f"'{original}' wasn't recognised. Upload the targets workbook, the traffic options workbook, "
+                       "owner_groups.csv or our_relationships_seed.csv.")
         return RedirectResponse("/admin/imports", status_code=303)
-    shutil.move(tmp.name, target)
-    from ...cli import import_all
+    # Store under the name the importer expects, whatever the file was called on the user's computer.
+    stamp = (re.search(r"(20\d{6})", original) or [None, date.today().strftime("%Y%m%d")])[1]
+    target = {"targets": raw / f"targets_{stamp}.xlsx",
+              "traffic_options": raw / f"CLE_traffic_options_{stamp}.xlsx",
+              "owner_groups": ref / "owner_groups.csv",
+              "relationship_seed": ref / "our_relationships_seed.csv"}[kind]
+    if kind in ("targets", "traffic_options"):
+        same = [p for p in raw.glob("*.xlsx") if p != tmp_path and sha256_of(p) == sha256_of(tmp_path)]
+        if same:
+            tmp_path.unlink(missing_ok=True)
+            flash(request, f"That spreadsheet is already uploaded (as {same[0].name}). Nothing changed.")
+            return RedirectResponse("/admin/imports", status_code=303)
+        n = 2
+        while target.exists():  # a different file with the same date: keep both, never overwrite an original
+            target = target.with_name(f"{target.stem.rsplit('_v', 1)[0]}_v{n}.xlsx")
+            n += 1
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(tmp_path), target)
+
     st = store_for(db, user)
-    out = import_all(st)
-    rescore(st)
-    st.audit("import.upload", "import_file", None, None, {"file": name, "result": {k: str(v)[:200] for k, v in out.items()}})
-    flash(request, f"Uploaded {name}, ran the import, the sweeps and a re-score.")
+    rank = IMPORT_ORDER.index(kind)
+    later = [f.kind for f in db.scalars(select(m.ImportFile)) if f.kind in IMPORT_ORDER and IMPORT_ORDER.index(f.kind) > rank]
+    if later and not _has_human_work(db):
+        out = reset_data(st)  # re-import everything in the right order
+        msg = (f"Saved {original} as {target.name}. It arrived after files that should come later, so everything "
+               "was re-imported in the right order.")
+    else:
+        out = import_all(st)
+        msg = f"Saved {original} as {target.name} and imported it. The sweeps and a re-score ran too."
+        if later:
+            msg += (" Note: it arrived after files that should come later and decisions have already been made, so it "
+                    "was imported on top. Use 'Reset and re-import' if the results look wrong.")
+    st.audit("import.upload", "import_file", None, None,
+             {"file": original, "saved_as": target.name, "kind": kind, "result": {k: str(v)[:200] for k, v in out.items()}})
+    missing = [k for k in IMPORT_ORDER if not db.scalar(select(m.ImportFile.id).where(m.ImportFile.kind == k).limit(1))]
+    if missing:
+        msg += " Still to upload: " + ", ".join(k.replace("_", " ") for k in missing) + "."
+    flash(request, msg)
     return RedirectResponse("/admin/imports", status_code=303)
+
+
+def sha256_of(path: Path) -> str:
+    from ...importers import sha256
+    return sha256(path)
 
 
 @router.post("/reset")
