@@ -233,3 +233,37 @@ def test_repeated_identical_error_stops_the_batch(store, targets_file):
     assert out["errors"] == 3 and broken.calls == 3
     run = store.s.scalar(select(m.JobRun).where(m.JobRun.job == "research"))
     assert "Stopped: the same error happened 3 times" in run.errors[-1]["message"]
+
+
+def test_lender_type_never_guessed_from_negations():
+    from ecosystem.research import roles_from_text
+    assert roles_from_text("Not a bank; fintech cash-advance provider (not a traditional lender); banking services by nbkc bank") == set()
+    assert roles_from_text("Not a direct lender; investment firm (loan buyer/investor)") == set()
+    assert roles_from_text("Bank-partner model (The Bank of Missouri, WebBank); provides servicing and purchases receivables") == {"lender_bank_partner"}
+    assert roles_from_text("tribal") == {"lender_tribal"}
+    assert roles_from_text("state-licensed; CSO in Texas") == {"lender_state_licensed", "lender_cab_cso"}
+
+
+def test_category_drives_the_role_and_screen_out(store, targets_file):
+    from ecosystem.research import screen_out
+    import_targets(store, targets_file)
+    s = store.s
+    q = org_named(s, "Quasar Lending, Inc.")
+    app_findings = [{"attribute": "lender_type_text", "value": "Not a bank; cash-advance app; banking by Example Bank",
+                     "source_url": "https://www.sunriselending.com/rates", "quote": "not a bank", "confidence": "high"}]
+
+    class AppFake(FakeAnthropic):
+        def create(self, **kw):
+            r = super().create(**kw)
+            for b in r.content:
+                if getattr(b, "name", "") == "record_findings":
+                    b.input["lender_category"] = "fintech_app"
+                    b.input["is_us_consumer_lender"] = False
+            return r
+    research_batch(store, org_ids=[q.id], client=AppFake(app_findings, pause_first=False))
+    item = s.scalar(select(m.ReviewItem).where(m.ReviewItem.kind == "research"))
+    assert item.payload["lender_category"] == "fintech_app"
+    apply_research(store, item)
+    assert s.scalar(select(m.OrgRole).where(m.OrgRole.organisation_id == q.id)) is None  # no role for an app
+    screen_out(store, q, "cash-advance app")
+    assert q.lifecycle == "screened_out"

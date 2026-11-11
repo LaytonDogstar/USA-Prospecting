@@ -44,6 +44,7 @@
   {% for k in ('text', 'field', 'evidence_source', 'evidence') %}{% if it.payload.get(k) %}<p class="small"><span class="muted">{{ k | replace('_', ' ') }}:</span> {{ it.payload[k] }}</p>{% endif %}{% endfor %}
   {% if it.kind == 'research' %}
     {% if it.payload.summary %}<p class="small"><b>Summary:</b> {{ it.payload.summary }}</p>{% endif %}
+    {% if it.payload.lender_category %}<p class="small"><b>Type:</b> {{ it.payload.lender_category | replace('_', ' ') }}</p>{% endif %}
     {% if it.payload.is_us_consumer_lender == false %}<p class="warnbox small">The researcher says this is <b>not a US consumer lender</b>. Consider screening it out.</p>{% endif %}
     <p class="small muted">{{ it.payload.model }} · cost ${{ '%.3f' | format(it.payload.cost_usd or 0) }}{% if it.payload.rejected_uncited %} · {{ it.payload.rejected_uncited }} finding{{ 's' if it.payload.rejected_uncited != 1 }} dropped because the cited page wasn't one the research actually opened{% endif %}</p>
     <table class="compact"><tbody>
@@ -76,6 +77,7 @@
       <button name="action" value="reject">Not related</button>
     {% elif it.kind == 'research' %}
       <button name="action" value="approve" class="primary">Accept these facts</button>
+      <button name="action" value="screen" {{ 'class=primary' if it.payload.is_us_consumer_lender == false }} title="Accept the facts and take it off the lender and supply lists">Accept and screen out</button>
       <button name="action" value="reject">Reject all</button>
     {% else %}
       <button name="action" value="approve" class="primary">Approve</button>

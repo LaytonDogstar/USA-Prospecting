@@ -73,7 +73,10 @@
         {% if r.segment %}· {{ r.segment }}{% endif %}{% if r.online_or_branch %}· {{ r.online_or_branch }}{% endif %}
         {% if r.tribe_id %}· tribe: <a href="/org/{{ r.tribe_id }}">{{ names.get(r.tribe_id) }}</a>{% endif %}
         {% if r.bank_partner_id %}· bank partner: <a href="/org/{{ r.bank_partner_id }}">{{ names.get(r.bank_partner_id) }}</a>{% endif %}
-        </span></p>
+        </span>
+        {% if admin %}<details class="inline"><summary class="small">Remove</summary>
+          <form method="post" action="/org/{{ org.id }}/role/{{ r.role }}/remove" class="row" data-confirm="Remove this role?">{{ csrf_field(csrf) }}
+            <input name="reason" placeholder="Why it's wrong" required size="24"><button class="danger">Remove role</button></form></details>{% endif %}</p>
     {% else %}<p class="muted">No roles recorded.</p>{% endfor %}
     {% for basis, rows in states.items() %}
       <h3>{{ {'lends': 'Lends in', 'licensed': 'Licensed in', 'excluded': 'Not available in'}[basis] }} ({{ rows | length }})</h3>

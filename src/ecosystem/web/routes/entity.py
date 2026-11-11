@@ -242,3 +242,25 @@ def delete_person(person_id: int, request: Request, reason: str = Form(...), db:
     db.execute(m.Entity.__table__.delete().where(m.Entity.id == person_id))
     flash(request, "Person deleted.")
     return RedirectResponse(f"/org/{org_id}#people" if org_id else "/people", status_code=303)
+
+
+@router.post("/org/{org_id}/role/{role}/remove")
+def remove_role(org_id: int, role: str, request: Request, reason: str = Form(...), db: Session = Depends(get_db),
+                user=Depends(admin_user)):
+    """Correct a wrong role (e.g. from research). The claims behind it stay on record, marked rejected."""
+    from ...scoring import rescore
+    org = _org_or_404(db, org_id)
+    r = db.scalar(select(m.OrgRole).where(m.OrgRole.organisation_id == org.id, m.OrgRole.role == role))
+    if r is None or not reason.strip():
+        raise HTTPException(400, "No such role, or no reason given")
+    st = store_for(db, user)
+    for c in db.scalars(select(m.Claim).where(m.Claim.entity_id == org.id, m.Claim.attribute == "role",
+                                              m.Claim.status == "accepted")):
+        if c.value == role:
+            c.status, c.decided_by = "rejected", user.username
+    st.audit("role.remove", "organisation", org.id, {"role": role, "claim_ids": list(r.claim_ids)}, {"note": reason.strip()})
+    db.delete(r)
+    db.flush()
+    rescore(st)
+    flash(request, f"Removed {ROLE_LABELS.get(role, role)} and re-scored.")
+    return RedirectResponse(f"/org/{org.id}", status_code=303)
