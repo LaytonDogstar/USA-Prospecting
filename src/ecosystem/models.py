@@ -56,6 +56,15 @@ REVIEW_KINDS = (
     "relationship_confirm", "manual_check",
 )
 USER_ROLES = ("admin", "viewer")
+PERSON_ROLE_CATEGORIES = {
+    "affiliate_partnerships": "Affiliate / partnerships manager",
+    "acquisition_performance": "Head of acquisition / performance marketing",
+    "growth_cmo": "VP growth / CMO",
+    "ceo_gm": "CEO / GM (smaller or tribal operators)",
+    "servicer_acquisition": "Servicer acquisition lead",
+    "compliance": "Compliance contact (diligence)",
+    "other": "Other",
+}
 
 
 # ---------------------------------------------------------------- entities
@@ -247,6 +256,7 @@ class Claim(Base):
     superseded_by: Mapped[int | None] = mapped_column(ForeignKey("claim.id"))
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
     decided_by: Mapped[str | None] = mapped_column(Text)
+    __table_args__ = (Index("ix_claim_entity_attr", "entity_id", "attribute"),)
 
 
 class ClaimSource(Base):
@@ -339,6 +349,7 @@ class Score(Base):
     components: Mapped[dict] = mapped_column(JSONB, default=dict)
     weights_version_id: Mapped[int | None] = mapped_column(ForeignKey("weights_version.id"))
     computed_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+    __table_args__ = (Index("ix_score_entity_type_time", "entity_id", "score_type", "computed_at"),)
 
 
 # ---------------------------------------------------------------- review, audit, users

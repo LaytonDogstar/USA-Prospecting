@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% from "_macros.html" import compliance_chip, our_chip, score_cell %}
+{% set is_l = kind == 'lenders' %}
+{% block title %}{{ 'Lenders' if is_l else 'Supply sources' }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>{{ 'Lenders' if is_l else 'Supply sources' }}</h1>
+    <p class="muted">{{ '{:,}'.format(total) }} match. Ranked by {{ 'buyer value' if is_l else 'supply value' }}. Blocked organisations are hidden unless you ask for them.</p></div>
+  <a class="btn" href="{{ qs(f, format='csv') }}">Export CSV</a>
+</div>
+
+<form class="filters" method="get">
+  <label>Search <input name="q" value="{{ f.q }}" placeholder="name, alias or domain"></label>
+  <label>Type <select name="role"><option value="">Any</option>
+    {% for k, label in roles %}<option value="{{ k }}" {{ 'selected' if f.role == k }}>{{ label }}</option>{% endfor %}</select></label>
+  <label>Our relationship <select name="our">
+    <option value="">Any</option><option value="none" {{ 'selected' if f.our == 'none' }}>None yet</option>
+    <option value="any" {{ 'selected' if f.our == 'any' }}>Any relationship</option>
+    {% for s in our_statuses %}<option value="{{ s }}" {{ 'selected' if f.our == s }}>{{ s | replace('_', ' ') }}</option>{% endfor %}</select></label>
+  <label>Compliance <select name="compliance">
+    {% for v, label in [('hide_blocked','Hide blocked'),('all','All'),('flagged','Has flags'),('unreviewed','Not reviewed'),('clear','Clear'),('review','Review'),('blocked','Blocked only')] %}
+    <option value="{{ v }}" {{ 'selected' if (f.compliance or 'hide_blocked') == v }}>{{ label }}</option>{% endfor %}</select></label>
+  {% if is_l %}
+  <label>State <select name="state"><option value="">Any</option>
+    {% for s in states %}<option {{ 'selected' if f.state == s }}>{{ s }}</option>{% endfor %}</select></label>
+  {% if tribes %}<label>Tribe <select name="tribe"><option value="">Any</option>
+    {% for id, name in tribes %}<option value="{{ id }}" {{ 'selected' if f.tribe == id|string }}>{{ name }}</option>{% endfor %}</select></label>{% endif %}
+  {% else %}
+  <label>Priority <select name="tier"><option value="">Any</option>
+    {% for t in 'ABC' %}<option {{ 'selected' if f.tier == t }}>{{ t }}</option>{% endfor %}</select></label>
+  {% endif %}
+  <label>Min score <input name="min_score" value="{{ f.min_score }}" size="4" inputmode="numeric"></label>
+  <label><input type="checkbox" name="screened" value="1" {{ 'checked' if f.screened }}> incl. screened out</label>
+  <input type="hidden" name="sort" value="{{ f.sort }}">
+  <button class="primary" type="submit">Filter</button>
+  <a class="btn" href="/{{ kind }}">Reset</a>
+</form>
+
+{% macro sort_th(key, label, cls='') -%}
+<th class="{{ cls }}"><a class="{{ 'on' if (f.sort or 'score') == key }}" href="{{ qs(f, sort=key, page='') }}">{{ label }}</a></th>
+{%- endmacro %}
+
+<div class="panel table-wrap">
+<table>
+  <thead><tr>
+    {{ sort_th('name', 'Name') }}<th>Type</th><th>Owner group</th>
+    {{ sort_th('score', 'Buyer value' if is_l else 'Supply value', 'num') }}
+    {% if is_l %}{{ sort_th('lbs', 'Lead-buying', 'num') }}{{ sort_th('loan', 'Max loan', 'num') }}<th class="num">States</th>{{ sort_th('complaints', 'CFPB 12m', 'num') }}{{ sort_th('sheet', 'Sheet score', 'num') }}
+    {% else %}{{ sort_th('tier', 'Priority') }}{{ sort_th('organic', 'Organic/mo', 'num') }}{% endif %}
+    <th>Ours</th><th>Compliance</th>
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td><a href="/org/{{ r.id }}">{{ r.display_name }}</a>
+        {% if r.domain %}<div class="small muted">{{ r.domain }}</div>{% endif %}
+        {% if r.lifecycle == 'screened_out' %}<span class="chip">screened out</span>{% elif r.lifecycle == 'candidate' %}<span class="chip">candidate</span>{% endif %}</td>
+      <td class="small">{{ r.role_list | join(', ') or '—' }}</td>
+      <td class="small">{% if r.parent_id %}<a href="/{{ kind }}?group={{ r.parent_id }}">{{ r.parent_name }}</a>{% else %}—{% endif %}</td>
+      <td class="num">{{ score_cell(r.score) }}</td>
+      {% if is_l %}
+      <td class="num">{{ r.lbs | num }}</td><td class="num">{{ ('$' ~ (r.loan_max | num)) if r.loan_max else '—' }}</td>
+      <td class="num">{{ r.states_n or '—' }}</td><td class="num">{{ r.complaints | num }}</td><td class="num">{{ r.sheet_score | num }}</td>
+      {% else %}
+      <td>{% if r.tier %}<span class="chip">{{ r.tier }}</span>{% endif %}</td><td class="num">{{ r.organic | num }}</td>
+      {% endif %}
+      <td>{{ our_chip(r.our_status, r.needs_confirmation) }}</td>
+      <td>{{ compliance_chip(r.compliance, r.flags) }}</td>
+    </tr>
+  {% else %}<tr><td colspan="11" class="muted">Nothing matches these filters.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}<a class="btn" href="{{ qs(f, page=page - 1) }}">← Previous</a>{% endif %}
+  <span class="muted">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a class="btn" href="{{ qs(f, page=page + 1) }}">Next →</a>{% endif %}
+</div>
+{% endif %}
+<p class="small muted">"?" after a relationship means it still needs confirming. Scores show components on each organisation's page.</p>
+{% endblock %}

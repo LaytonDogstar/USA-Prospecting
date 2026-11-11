@@ -2,6 +2,7 @@
 import argparse
 import getpass
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,7 @@ from .importers import (default_attribute_defs, import_owner_groups, import_rela
                         import_traffic)
 from .matching import name_dedup_suggestions, possible_match_sweep
 from .reconcile import report, to_markdown
+from .scoring import rescore
 from .store import Store
 
 
@@ -44,7 +46,20 @@ def import_all(store: Store, raw: Path = RAW_DIR, ref: Path = REFERENCE_DIR) -> 
         out["our_relationships_seed.csv"] = import_relationship_seed(store, ref / "our_relationships_seed.csv")
     out["name_dedup_suggestions"] = name_dedup_suggestions(store)
     out["possible_match_sweep"] = possible_match_sweep(store)
+    out["rescore"] = rescore(store)
     return out
+
+
+def bootstrap_admin() -> str:
+    """Create the first admin from ADMIN_USERNAME / ADMIN_PASSWORD if there are no users yet (used on Railway)."""
+    name, pw = os.environ.get("ADMIN_USERNAME"), os.environ.get("ADMIN_PASSWORD")
+    with session_scope() as s:
+        if s.scalar(select(m.AppUser.id).limit(1)):
+            return "users already exist; nothing to do"
+        if not name or not pw:
+            return "no users yet: set ADMIN_USERNAME and ADMIN_PASSWORD, or run create-user"
+        create_user(s, name, pw, "admin")
+        return f"created admin {name.lower()}"
 
 
 def main(argv=None) -> int:
@@ -55,6 +70,8 @@ def main(argv=None) -> int:
     for name in ("import-targets", "import-traffic", "import-owner-groups", "import-seed"):
         sub.add_parser(name).add_argument("path", type=Path)
     sub.add_parser("sweep", help="raise possible matches against our relationships")
+    sub.add_parser("rescore", help="recompute buyer and supply value with the current weights")
+    sub.add_parser("bootstrap-admin", help="create the first admin from ADMIN_USERNAME / ADMIN_PASSWORD")
     rp = sub.add_parser("reconcile", help="print the count reconciliation")
     rp.add_argument("--json", action="store_true")
     rl = sub.add_parser("review-list")
@@ -73,6 +90,9 @@ def main(argv=None) -> int:
 
     if a.cmd == "migrate":
         migrate()
+        return 0
+    if a.cmd == "bootstrap-admin":
+        print(bootstrap_admin())
         return 0
     if a.cmd == "create-user":
         pw = getpass.getpass("Password: ")
@@ -99,6 +119,8 @@ def main(argv=None) -> int:
             print(import_relationship_seed(store, a.path))
         elif a.cmd == "sweep":
             print(possible_match_sweep(store))
+        elif a.cmd == "rescore":
+            print(rescore(store))
         elif a.cmd == "reconcile":
             r = report(s)
             print(json.dumps(r, indent=2, default=str) if a.json else to_markdown(r))

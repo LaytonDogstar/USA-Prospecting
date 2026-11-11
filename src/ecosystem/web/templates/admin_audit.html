@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Audit log{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Admin</h1></div></div>
+{% include "_admin_nav.html" %}
+<div class="panel table-wrap">
+  <h2>Audit log <span class="small muted">latest 300</span></h2>
+  <table class="compact"><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Record</th><th>Detail</th></tr></thead><tbody>
+  {% for a in rows %}<tr><td class="small muted" style="white-space:nowrap">{{ a.at.strftime('%d %b %Y %H:%M:%S') }}</td><td class="small">{{ a.actor }}</td>
+    <td class="small">{{ a.action }}</td>
+    <td class="small">{% if a.table_name == 'organisation' and a.row_id %}<a href="/org/{{ a.row_id }}">org {{ a.row_id }}</a>{% elif a.table_name %}{{ a.table_name }} {{ a.row_id or '' }}{% endif %}</td>
+    <td class="small mono pre">{% if a.before %}before {{ a.before | tojson }}
+{% endif %}{% if a.after %}{{ a.after | tojson }}{% endif %}</td></tr>{% endfor %}
+  </tbody></table>
+</div>
+{% endblock %}

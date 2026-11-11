@@ -1,0 +1,19 @@
+<h2>{{ title }}</h2>
+{% if org %}<p class="small"><a href="/org/{{ org.id }}">{{ org.display_name }}</a></p>{% endif %}
+{% for it in items %}{% set c = it.claim %}
+<div class="claim {{ c.status }}">
+  <div class="val">{{ c.value | val }}</div>
+  <div class="small">
+    <span class="chip {{ 'good' if c.confidence == 'high' else 'warn' if c.confidence == 'low' else '' }}">{{ c.confidence }} confidence</span>
+    {% if c.status != 'accepted' %}<span class="chip">{{ c.status }}</span>{% endif %}
+    <span class="muted">{{ c.attribute | replace('_', ' ') }} · {{ c.method }} · {{ c.created_at.strftime('%d %b %Y') }}</span>
+  </div>
+  <div class="small">Source{{ 's' if it.sources | length > 1 }}:
+    <ul>{% for s, label in it.sources %}
+      <li>{% if s.url %}<a href="{{ s.url }}" rel="noopener noreferrer" target="_blank">{{ label }}</a> <span class="muted">({{ s.source_type | replace('_', ' ') }})</span>
+        · <a href="/source/{{ s.id }}">all facts from this source</a>
+      {% else %}<a href="/source/{{ s.id }}">{{ label }}</a> <span class="muted">({{ s.source_type | replace('_', ' ') }})</span>{% endif %}</li>
+    {% endfor %}</ul>
+  </div>
+</div>
+{% else %}<p class="muted">No claims found.</p>{% endfor %}

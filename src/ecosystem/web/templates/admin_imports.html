@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field %}
+{% block title %}Imports{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Admin</h1></div></div>
+{% include "_admin_nav.html" %}
+<div class="grid g2">
+<section class="panel">
+  <h2>Upload a file</h2>
+  <form method="post" action="/admin/imports" enctype="multipart/form-data" class="stack">{{ csrf_field(csrf) }}
+    <input type="file" name="upload" accept=".xlsx,.csv" required>
+    <button class="primary">Upload and import</button>
+  </form>
+  <p class="small muted">Accepted names: {{ patterns | join(', ') }}. Spreadsheets are stored unchanged. Importing the same file twice does nothing. After the import the possible-match sweep and a re-score run automatically.</p>
+</section>
+<section class="panel table-wrap">
+  <h2>Imported files</h2>
+  <table class="compact"><thead><tr><th>File</th><th>Kind</th><th>When</th><th>Counts</th></tr></thead><tbody>
+  {% for f in files %}<tr><td>{{ f.file_name }}<div class="small muted mono">{{ f.sha256[:12] }}</div></td><td class="small">{{ f.kind }}</td>
+    <td class="small muted">{{ f.imported_at.strftime('%d %b %Y %H:%M') }}<br>{{ f.imported_by }}</td>
+    <td class="small">{% for k, v in f.row_counts.items() %}{{ k | replace('_', ' ') }} {{ v }}{{ ', ' if not loop.last }}{% endfor %}</td></tr>
+  {% else %}<tr><td class="muted">Nothing imported yet.</td></tr>{% endfor %}
+  </tbody></table>
+</section>
+</div>
+{% endblock %}

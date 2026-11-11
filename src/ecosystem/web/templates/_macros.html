@@ -1,0 +1,24 @@
+{% macro ev_attr(org_id, attribute) -%}
+<a class="ev" href="/org/{{ org_id }}/evidence/{{ attribute }}" title="Why do we believe this?" aria-label="Evidence for {{ attribute }}">i</a>
+{%- endmacro %}
+
+{% macro ev_ids(ids) -%}
+{% if ids %}<a class="ev" href="/evidence?ids={{ ids | join(',') }}" title="Why do we believe this?" aria-label="Evidence">i</a>{% endif %}
+{%- endmacro %}
+
+{% macro our_chip(status, needs_confirmation=False) -%}
+{% if status %}<span class="chip {{ 'good' if status in ('live','contracting') else 'info' if status in ('in_talks','paused') else '' }}">{{ status | replace('_', ' ') }}{% if needs_confirmation %} ?{% endif %}</span>{% endif %}
+{%- endmacro %}
+
+{% macro compliance_chip(value, flags=0) -%}
+{% if value == 'blocked' %}<span class="chip bad">blocked</span>
+{% elif value == 'review' %}<span class="chip warn">compliance review</span>
+{% elif value == 'clear' %}<span class="chip good">clear</span>
+{% elif flags %}<span class="chip warn" title="Compliance flags found, status not yet set">{{ flags }} flag{{ 's' if flags != 1 }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro score_cell(v) -%}
+{% if v is not none %}<span class="score">{{ '%.0f' | format(v) }}</span><span class="bar" style="width: {{ (v | float) * 0.4 }}px"></span>{% else %}<span class="muted">—</span>{% endif %}
+{%- endmacro %}
+
+{% macro csrf_field(csrf) -%}<input type="hidden" name="csrf" value="{{ csrf }}">{%- endmacro %}

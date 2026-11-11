@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Admin</h1></div></div>
+{% include "_admin_nav.html" %}
+<div class="grid g2">
+<section class="panel table-wrap">
+  <h2>Users</h2>
+  <table class="compact"><thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead><tbody>
+  {% for u in users %}
+    <tr><td>{{ u.username }}</td><td>{{ u.role }}</td>
+      <td>{% if not u.is_active %}<span class="chip">deactivated</span>{% elif u.locked_until %}<span class="chip warn">locked</span>{% else %}<span class="chip good">active</span>{% endif %}</td>
+      <td class="small muted">{{ u.last_login_at.strftime('%d %b %Y %H:%M') if u.last_login_at else 'never' }}</td>
+      <td>{% if u.id != user.id %}
+        <form method="post" action="/admin/users/{{ u.id }}" class="inline">{{ csrf_field(csrf) }}
+          {% if u.is_active %}<button name="action" value="deactivate" class="danger">Deactivate</button>{% else %}<button name="action" value="activate">Reactivate</button>{% endif %}
+        </form>
+        <form method="post" action="/admin/users/{{ u.id }}" class="inline">{{ csrf_field(csrf) }}<input type="hidden" name="role" value="{{ 'viewer' if u.role == 'admin' else 'admin' }}">
+          <button name="action" value="role">Make {{ 'viewer' if u.role == 'admin' else 'admin' }}</button></form>
+        {% endif %}
+        <details><summary class="small">Set password</summary>
+          <form method="post" action="/admin/users/{{ u.id }}" class="row">{{ csrf_field(csrf) }}
+            <input type="password" name="password" minlength="{{ min_len }}" autocomplete="new-password" required><button name="action" value="password">Set</button></form>
+        </details></td></tr>
+  {% endfor %}
+  </tbody></table>
+</section>
+<section class="panel">
+  <h2>Add a user</h2>
+  <form method="post" action="/admin/users" class="stack">{{ csrf_field(csrf) }}
+    <label>Username <input name="username" required autocomplete="off"></label>
+    <label>Password (at least {{ min_len }} characters) <input type="password" name="password" minlength="{{ min_len }}" autocomplete="new-password" required></label>
+    <label>Role <select name="role"><option value="viewer">viewer (read only)</option><option value="admin">admin (can edit and decide)</option></select></label>
+    <button class="primary">Create</button>
+  </form>
+  <p class="small muted">Accounts lock for 15 minutes after 5 failed sign-ins. Share passwords through a password manager, not chat or email.</p>
+</section>
+</div>
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% from "_macros.html" import our_chip, csrf_field %}
+{% set admin = user.role == 'admin' %}
+{% block title %}Review{% endblock %}
+{% block content %}
+<div class="page-head"><div>
+  <h1>Review inbox</h1>
+  <p class="muted">Nothing is merged, linked or promoted until someone decides here. Every decision is logged with its note.</p>
+</div></div>
+
+<div class="tabs">
+  {% for k, label in labels.items() %}{% if counts.get(k) or k == kind %}
+  <a href="/review?kind={{ k }}" class="{{ 'on' if k == kind }}">{{ label }} <b>{{ counts.get(k, 0) }}</b></a>{% endif %}{% endfor %}
+  <a href="/review?kind={{ kind }}&status=done" class="{{ 'on' if status != 'open' }}">Decided</a>
+</div>
+{% if not admin %}<p class="warnbox small">You can read the inbox. Only admins can decide items.</p>{% endif %}
+
+{% macro side(o) %}
+  {% if o %}
+  <div class="side">
+    <a href="/org/{{ o.id }}"><b>{{ o.display_name }}</b></a>
+    {% if o.lifecycle == 'merged' %}<span class="chip">merged</span>{% endif %}
+    {% if o.our_status %}<div>{{ our_chip(o.our_status) }} <span class="small">{{ o.our_role }}</span></div>{% endif %}
+    <div class="small muted">
+      {% if o.cfpb_name %}CFPB: {{ o.cfpb_name }}<br>{% endif %}
+      {% if o.domains %}{{ o.domains }}<br>{% endif %}
+      {% if o.roles %}{{ o.roles | replace('_', ' ') }}<br>{% endif %}
+      {% if o.parent %}Group: {{ o.parent }}<br>{% endif %}
+      {{ o.facts }} facts
+    </div>
+  </div>
+  {% endif %}
+{% endmacro %}
+
+{% for it in items %}
+<div class="card" id="item-{{ it.id }}">
+  <div class="row" style="justify-content: space-between">
+    <div><b>{{ it.title }}</b>
+      {% if it.payload.get('strength') %}<span class="chip {{ 'warn' if it.payload.strength == 'strong' else '' }}">{{ it.payload.strength }} evidence</span>{% endif %}
+    </div>
+    <span class="small muted">#{{ it.id }} · {{ it.created_at.strftime('%d %b %Y') }}</span>
+  </div>
+  {% if it.payload.get('reasons') %}<ul class="small">{% for r in it.payload.reasons %}<li>{{ r }}</li>{% endfor %}</ul>{% endif %}
+  {% for k in ('text', 'field', 'evidence_source', 'evidence') %}{% if it.payload.get(k) %}<p class="small"><span class="muted">{{ k | replace('_', ' ') }}:</span> {{ it.payload[k] }}</p>{% endif %}{% endfor %}
+  {% set ids = it.entity_ids %}
+  {% if ids | length == 2 %}<div class="pair">{{ side(summaries.get(ids[0])) }}{{ side(summaries.get(ids[1])) }}</div>
+  {% elif ids %}<div class="pair">{{ side(summaries.get(ids[0])) }}</div>{% endif %}
+
+  {% if it.status != 'open' %}
+    <p class="small">{{ it.status }} by {{ it.decided_by }} on {{ it.decided_at.strftime('%d %b %Y') }}{% if it.note %}: {{ it.note }}{% endif %}</p>
+  {% elif admin %}
+  <form method="post" action="/review/{{ it.id }}/decide" class="row">{{ csrf_field(csrf) }}
+    <input name="note" placeholder="Note (why)" size="30">
+    {% if it.kind in ('possible_match', 'dedup') and ids | length == 2 %}
+      {% set a, b = summaries.get(ids[0]), summaries.get(ids[1]) %}
+      {% if a and b %}
+      <button name="action" value="merge:{{ a.id }}" class="primary" title="Same company: keep {{ a.display_name }}">Same: keep left</button>
+      <button name="action" value="merge:{{ b.id }}" class="primary" title="Same company: keep {{ b.display_name }}">Same: keep right</button>
+      <button name="action" value="link:{{ a.id }}:{{ b.id }}" title="{{ a.display_name }} owns {{ b.display_name }}">Left owns right</button>
+      <button name="action" value="link:{{ b.id }}:{{ a.id }}" title="{{ b.display_name }} owns {{ a.display_name }}">Right owns left</button>
+      {% endif %}
+      <button name="action" value="reject">Not related</button>
+    {% else %}
+      <button name="action" value="approve" class="primary">Approve</button>
+      <button name="action" value="reject">Reject</button>
+    {% endif %}
+  </form>
+  {% endif %}
+</div>
+{% else %}<p class="muted">Nothing here.</p>{% endfor %}
+
+{% if pages > 1 %}<div class="pager">
+  {% if page > 1 %}<a class="btn" href="/review?kind={{ kind }}&status={{ status }}&page={{ page - 1 }}">← Previous</a>{% endif %}
+  <span class="muted">Page {{ page }} of {{ pages }} · {{ total }} items</span>
+  {% if page < pages %}<a class="btn" href="/review?kind={{ kind }}&status={{ status }}&page={{ page + 1 }}">Next →</a>{% endif %}
+</div>{% endif %}
+{% endblock %}

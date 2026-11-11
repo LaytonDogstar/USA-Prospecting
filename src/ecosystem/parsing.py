@@ -83,8 +83,9 @@ def loan_range(text: str | None) -> tuple[float | None, float | None]:
     if not amounts:
         return None, None
     lo, hi = min(amounts), max(amounts)
-    if len(amounts) == 1 or (lo == hi):
-        return (None, hi) if re.search(r"up to", str(text), re.I) else (lo, hi)
+    has_range = re.search(r"\$\s?\d[\d,]*\s*(?:-|–|to)\s*\$?\s?\d", str(text))
+    if re.search(r"up to", str(text), re.I) and not has_range:
+        return None, hi  # 'up to $1,200 new / $3,000 VIP' gives a ceiling, not a minimum
     return lo, hi
 
 

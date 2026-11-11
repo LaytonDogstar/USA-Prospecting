@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% from "_macros.html" import ev_attr, ev_ids, our_chip, compliance_chip, csrf_field %}
+{% set admin = user.role == 'admin' %}
+{% block title %}{{ org.display_name }}{% endblock %}
+{% block content %}
+
+{# ---------- the five-second view ---------- #}
+<div class="page-head">
+  <div>
+    <h1>{{ org.display_name }}</h1>
+    <div>
+      {% for r in roles %}<span class="chip info">{{ role_labels.get(r.role, r.role) }}</span>{% endfor %}
+      {% if org.kind != 'company' %}<span class="chip">{{ org.kind | replace('_', ' ') }}</span>{% endif %}
+      {% if org.tier %}<span class="chip">Priority {{ org.tier }}</span>{% endif %}
+      {% if org.lifecycle != 'active' %}<span class="chip">{{ org.lifecycle | replace('_', ' ') }}</span>{% endif %}
+      {% if parent %}<span class="small muted">· part of <a href="/org/{{ parent.id }}">{{ parent.display_name }}</a></span>{% endif %}
+    </div>
+  </div>
+  <div class="kpis" style="margin:0">
+    {% for st, label in [('buyer_value', 'Buyer value'), ('supply_value', 'Supply value')] %}{% if scores.get(st) %}
+      <a class="kpi" href="#scores"><b>{{ '%.0f' | format(scores[st].value) }}</b><span>{{ label }}</span></a>{% endif %}{% endfor %}
+    <a class="kpi" href="#relationship"><b>{{ (ours.status | replace('_', ' ')) if ours else 'None' }}</b><span>Our relationship{% if ours and ours.needs_confirmation %} (to confirm){% endif %}</span></a>
+    <a class="kpi" href="#compliance"><b>{{ cstatus.value if cstatus else ('Flags' if flags else 'Not reviewed') }}</b><span>Compliance{% if flags %} · {{ flags | length }} flag{{ 's' if flags | length != 1 }}{% endif %}</span></a>
+  </div>
+</div>
+
+{% if cstatus and cstatus.value == 'blocked' %}<div class="badbox"><b>Blocked:</b> {{ cstatus.note }} ({{ cstatus.set_by }}, {{ cstatus.set_at.strftime('%d %b %Y') }})</div>
+{% elif cstatus and cstatus.value == 'review' %}<div class="warnbox"><b>Compliance review:</b> {{ cstatus.note }}</div>
+{% elif flags and not cstatus %}<div class="warnbox">{{ flags | length }} compliance flag{{ 's' if flags | length != 1 }} found and no compliance status set yet. <a href="#compliance">Review</a></div>{% endif %}
+{% if reviews %}<div class="warnbox">Open review items: {% for it in reviews %}<a href="/review?kind={{ it.kind }}#item-{{ it.id }}">{{ it.title }}</a>{{ '; ' if not loop.last }}{% endfor %}</div>{% endif %}
+
+<div class="grid g2">
+<div class="stack" style="min-width:0">
+
+  <section class="panel">
+    <h2>Profile</h2>
+    {% if profile %}
+    <table class="kv"><tbody>
+      {% for key, label, f in profile %}
+      <tr><td>{{ label }}</td><td><span class="pre">{{ f.value | val }}</span>{{ ev_attr(org.id, key) }}
+        {% if f.confidence == 'low' %}<span class="chip warn">low confidence</span>{% endif %}</td></tr>
+      {% endfor %}
+    </tbody></table>
+    {% else %}<p class="muted">No profile facts yet.</p>{% endif %}
+    {% if other_facts %}
+    <details><summary>All facts ({{ other_facts | length }} more)</summary>
+      <table class="kv compact"><tbody>
+      {% for key, f in other_facts %}<tr><td>{{ key | replace('_', ' ') }}</td><td><span class="pre">{{ f.value | val }}</span>{{ ev_attr(org.id, key) }}{% if f.n > 1 %} <span class="small muted">({{ f.n }} claims)</span>{% endif %}</td></tr>{% endfor %}
+      </tbody></table>
+    </details>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h2>Names, brands and domains</h2>
+    {% if org.legal_name and org.legal_name != org.display_name %}<p><span class="muted">Legal name:</span> {{ org.legal_name }}</p>{% endif %}
+    {% if brands %}<h3>Brands</h3><ul>{% for b in brands %}<li>{{ b.name }}{{ ev_ids(b.claim_ids) }}</li>{% endfor %}</ul>{% endif %}
+    {% if domains %}<h3>Domains</h3><ul>{% for d in domains %}
+      <li><a href="https://{{ d.hostname }}" rel="noopener noreferrer" target="_blank">{{ d.hostname }}</a>{% if d.is_primary %} <span class="chip">primary</span>{% endif %}{{ ev_ids(d.claim_ids) }}</li>{% endfor %}</ul>{% endif %}
+    {% if declared %}<h3>Domains claimed but held by another record</h3><ul>{% for c in declared %}<li>{{ c.value }}{{ ev_ids([c.id]) }}</li>{% endfor %}</ul>{% endif %}
+    {% if aliases %}<h3>Also seen as</h3><p class="small">{{ aliases | join(' · ') }}</p>{% endif %}
+    {% if merged_from %}<h3>Merged records</h3><p class="small">{% for o in merged_from %}{{ o.display_name }}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+  </section>
+
+  <section class="panel">
+    <h2>Roles and state footprint</h2>
+    {% for r in roles %}
+      <p><b>{{ role_labels.get(r.role, r.role) }}</b>{{ ev_ids(r.claim_ids) }}
+        <span class="small muted">
+        {% if r.loan_min or r.loan_max %}· loans {% if r.loan_min %}${{ r.loan_min | num }}{% endif %}–{% if r.loan_max %}${{ r.loan_max | num }}{% endif %}{% endif %}
+        {% if r.segment %}· {{ r.segment }}{% endif %}{% if r.online_or_branch %}· {{ r.online_or_branch }}{% endif %}
+        {% if r.tribe_id %}· tribe: <a href="/org/{{ r.tribe_id }}">{{ names.get(r.tribe_id) }}</a>{% endif %}
+        {% if r.bank_partner_id %}· bank partner: <a href="/org/{{ r.bank_partner_id }}">{{ names.get(r.bank_partner_id) }}</a>{% endif %}
+        </span></p>
+    {% else %}<p class="muted">No roles recorded.</p>{% endfor %}
+    {% for basis, rows in states.items() %}
+      <h3>{{ {'lends': 'Lends in', 'licensed': 'Licensed in', 'excluded': 'Not available in'}[basis] }} ({{ rows | length }})</h3>
+      <p>{% for es in rows %}<span class="chip">{{ es.state }}</span>{% endfor %}{{ ev_ids(rows[0].claim_ids) }}</p>
+    {% endfor %}
+  </section>
+
+  <section class="panel">
+    <h2>Size and traffic</h2>
+    {% if metrics %}
+    <table class="compact"><thead><tr><th>Metric</th><th class="num">Value</th><th>Period</th><th></th></tr></thead><tbody>
+      {% for mt in metrics %}<tr><td>{{ metric_labels.get(mt.metric, mt.metric | replace('_', ' ')) }}</td><td class="num">{{ mt.value | num }}</td>
+        <td class="small muted">{{ mt.period or '' }}{% if mt.n > 1 %} · {{ mt.n }} snapshots{% endif %}</td><td>{{ ev_ids([mt.claim_id] if mt.claim_id else []) }}</td></tr>{% endfor %}
+    </tbody></table>
+    {% else %}<p class="muted">No size data yet. Phase 4 fills Ahrefs gaps and page-level sizing.</p>{% endif %}
+  </section>
+
+  <section class="panel">
+    <h2>Relationships</h2>
+    {% if children %}<h3>Owns / operates ({{ children | length }})</h3>
+      <p>{% for c in children %}<a href="/org/{{ c.id }}">{{ c.display_name }}</a>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+    {% macro edge_rows(edges, direction) %}
+      {% for e in edges %}{% set other = e.to_id if direction == 'out' else e.from_id %}
+      <tr><td class="small">{{ e.type | replace('_', ' ') }}{{ ' (from)' if direction == 'in' }}</td>
+        <td><a href="/org/{{ other }}">{{ names.get(other, other) }}</a></td>
+        <td><span class="chip {{ 'good' if e.status == 'confirmed' else 'warn' if e.status == 'rumoured' else '' }}">{{ e.status }}</span></td>
+        <td>{{ ev_ids(e.claim_ids) }}</td></tr>{% endfor %}
+    {% endmacro %}
+    {% if edges_out or edges_in %}
+    <table class="compact"><tbody>{{ edge_rows(edges_out, 'out') }}{{ edge_rows(edges_in[:60], 'in') }}</tbody></table>
+    {% if edges_in | length > 60 %}<p class="small muted">Showing 60 of {{ edges_in | length }} incoming links.</p>{% endif %}
+    {% else %}<p class="muted">No links recorded.</p>{% endif %}
+  </section>
+</div>
+
+<div class="stack" style="min-width:0">
+  <section class="panel" id="relationship">
+    <h2>Our relationship</h2>
+    {% if ours %}
+      <p>{{ our_chip(ours.status, ours.needs_confirmation) }} as <b>{{ ours.role }}</b>{% if ours.owner %} · owner {{ ours.owner }}{% endif %}
+        <span class="small muted">· source {{ ours.source }} · updated {{ ours.updated_at.strftime('%d %b %Y') }} by {{ ours.updated_by }}</span></p>
+      {% if ours.needs_confirmation %}<p class="warnbox small">Needs confirmation from the pingtree or the account owner.</p>{% endif %}
+      {% if ours.notes %}<p class="pre small">{{ ours.notes }}</p>{% endif %}
+    {% else %}<p class="muted">We don't work with them. This is set by people only, never inferred from names.</p>{% endif %}
+    {% if admin %}
+    <details {{ 'open' if not ours }}><summary>{{ 'Edit' if ours else 'Add a relationship' }}</summary>
+      <form method="post" action="/org/{{ org.id }}/relationship" class="stack">{{ csrf_field(csrf) }}
+        <div class="row">
+          <label>Role <select name="role">{% for r in our_roles %}<option {{ 'selected' if ours and ours.role == r }}>{{ r }}</option>{% endfor %}</select></label>
+          <label>Status <select name="status">{% for s in our_statuses %}<option value="{{ s }}" {{ 'selected' if (ours and ours.status == s) or (not ours and s == 'prospect') }}>{{ s | replace('_', ' ') }}</option>{% endfor %}</select></label>
+          <label>Owner <input name="owner" value="{{ ours.owner if ours and ours.owner else '' }}"></label>
+        </div>
+        <label>Notes <textarea name="notes">{{ ours.notes if ours and ours.notes else '' }}</textarea></label>
+        <label><input type="checkbox" name="needs_confirmation" value="1" {{ 'checked' if ours and ours.needs_confirmation }}> Still needs confirmation</label>
+        <button class="primary">Save</button>
+      </form>
+    </details>
+    {% endif %}
+    {% if ours_history | length > 1 %}<details><summary>History ({{ ours_history | length }})</summary>
+      <table class="compact"><tbody>{% for h in ours_history %}<tr><td class="small muted">{{ h.changed_at.strftime('%d %b %Y %H:%M') }}</td><td class="small">{{ h.changed_by }}</td><td class="small">{{ h.snapshot.status }} / {{ h.snapshot.role }}</td></tr>{% endfor %}</tbody></table>
+    </details>{% endif %}
+  </section>
+
+  <section class="panel" id="scores">
+    <h2>Scores</h2>
+    {% for st, label in [('buyer_value', 'Buyer value'), ('supply_value', 'Supply value')] %}{% set sc = scores.get(st) %}{% if sc %}
+      <h3>{{ label }}: {{ '%.1f' | format(sc.value) }} <span class="muted">(weights {{ sc.components.weights_label }}, {{ sc.computed_at.strftime('%d %b %Y') }})</span></h3>
+      <table class="compact"><thead><tr><th>Component</th><th class="num">Score</th><th class="num">Weight</th><th>Input and method</th></tr></thead><tbody>
+      {% for name, c in sc.components.components.items() %}
+        <tr><td>{{ name | replace('_', ' ') }}</td>
+          <td class="num">{{ ('%.0f' | format(c.score)) if c.score is not none else ('25*' if name in sc.components.missing else '—') }}</td>
+          <td class="num">{{ c.weight | num if c.weight else '—' }}</td>
+          <td class="small">{% if c.raw %}{{ c.raw }}<br>{% endif %}<span class="muted">{{ c.method }}</span>{{ ev_ids(c.claim_ids) }}</td></tr>
+      {% endfor %}</tbody></table>
+      {% if sc.components.missing %}<p class="small muted">* no data for {{ sc.components.missing | join(', ') | replace('_', ' ') }}: scored as unknown (25).</p>{% endif %}
+      {% if score_history[st] | length > 1 %}<p class="small muted">History: {% for h in score_history[st] %}{{ '%.0f' | format(h.value) }} ({{ h.label }}, {{ h.computed_at.strftime('%d %b') }}){{ ' · ' if not loop.last }}{% endfor %}</p>{% endif %}
+    {% endif %}{% endfor %}
+    {% if scores.get('lbs_index') %}<p>Lead-buying strength (spreadsheet index): <b>{{ scores['lbs_index'].value | num }}</b> / 100
+      <span class="small muted">· {% for k, v in scores['lbs_index'].components.items() if k not in ('sheet', 'row', 'rank') and v is not none %}{{ k }} {{ v }}{{ ', ' if not loop.last }}{% endfor %}</span></p>{% endif %}
+    {% if scores.get('sheet_reference') %}<p>Original spreadsheet score (reference): <b>{{ scores['sheet_reference'].value | num }}</b>
+      <span class="small muted">· rank {{ scores['sheet_reference'].components.get('rank') }}</span></p>{% endif %}
+    {% if not scores %}<p class="muted">Not scored.</p>{% endif %}
+  </section>
+
+  <section class="panel" id="compliance">
+    <h2>Compliance</h2>
+    <p>Status: {% if cstatus %}{{ compliance_chip(cstatus.value) }} <span class="small">{{ cstatus.note }}</span>
+      <span class="small muted">({{ cstatus.set_by }}, {{ cstatus.set_at.strftime('%d %b %Y') }})</span>{% else %}<span class="muted">not reviewed</span>{% endif %}</p>
+    {% for fl in flags %}<p><span class="chip warn">{{ fl.flag_type | replace('_', ' ') }}</span> <span class="small">{{ fl.summary }}</span>{{ ev_ids([fl.claim_id]) }}</p>{% endfor %}
+    {% if admin %}
+    <details><summary>Set status</summary>
+      <form method="post" action="/org/{{ org.id }}/compliance" class="stack">{{ csrf_field(csrf) }}
+        <div class="row"><label>Status <select name="value">{% for v in ['clear', 'review', 'blocked'] %}<option {{ 'selected' if cstatus and cstatus.value == v }}>{{ v }}</option>{% endfor %}</select></label></div>
+        <label>Reason (kept in the audit trail) <textarea name="note" required></textarea></label>
+        <button class="primary">Save</button>
+      </form>
+    </details>{% endif %}
+    {% if chistory | length > 1 %}<details><summary>History</summary><table class="compact"><tbody>
+      {% for h in chistory %}<tr><td class="small muted">{{ h.set_at.strftime('%d %b %Y') }}</td><td class="small">{{ h.value }}</td><td class="small">{{ h.set_by }}: {{ h.note }}</td></tr>{% endfor %}
+    </tbody></table></details>{% endif %}
+  </section>
+
+  <section class="panel" id="people">
+    <h2>People</h2>
+    {% for p in people %}
+      <div class="claim"><b>{{ p.name }}</b>{% if p.title %}, {{ p.title }}{% endif %} <span class="chip">{{ person_roles.get(p.role_category, p.role_category) }}</span>
+        <div class="small">{{ p.email or '' }}{% if p.linkedin_url %} <a href="{{ p.linkedin_url }}" rel="noopener noreferrer" target="_blank">LinkedIn</a>{% endif %}</div>
+        <div class="small muted">Source: {{ p.source }} · {{ p.lawful_basis_note }}</div>
+        {% if admin %}<form method="post" action="/person/{{ p.id }}/delete" class="row" data-confirm="Delete {{ p.name }} permanently?">{{ csrf_field(csrf) }}
+          <input name="reason" placeholder="Reason, e.g. deletion request" required size="28"><button class="danger">Delete</button></form>{% endif %}
+      </div>
+    {% else %}<p class="muted">No people yet.</p>{% endfor %}
+    {% if admin %}
+    <details><summary>Add a person</summary>
+      <form method="post" action="/org/{{ org.id }}/people" class="stack">{{ csrf_field(csrf) }}
+        <div class="row"><label>Name <input name="name" required></label><label>Title <input name="title"></label></div>
+        <label>Role <select name="role_category">{% for k, label in person_roles.items() %}<option value="{{ k }}">{{ label }}</option>{% endfor %}</select></label>
+        <div class="row"><label>LinkedIn URL (entered by hand) <input name="linkedin_url" type="url" placeholder="https://www.linkedin.com/in/…"></label>
+          <label>Email (licensed sources only) <input name="email" type="email"></label></div>
+        <label>Source <input name="source" required placeholder="e.g. Sales Navigator (manual), 10-K 2025, OLA board page"></label>
+        <label>Lawful basis <input name="lawful_basis_note" value="UK GDPR legitimate interests (B2B contact)"></label>
+        <button class="primary">Add</button>
+      </form>
+    </details>{% endif %}
+  </section>
+
+  <section class="panel">
+    <h2>Change timeline</h2>
+    <table class="compact"><tbody>
+    {% for e in timeline %}<tr><td class="small muted" style="white-space:nowrap">{{ e.at.strftime('%d %b %Y') }}</td><td class="small">{{ e.what }}</td><td class="small muted">{{ e.actor }}</td></tr>
+    {% else %}<tr><td class="muted">No history.</td></tr>{% endfor %}
+    </tbody></table>
+  </section>
+</div>
+</div>
+{% endblock %}

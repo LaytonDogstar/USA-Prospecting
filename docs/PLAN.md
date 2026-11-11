@@ -1,6 +1,6 @@
 # Phase 0 plan: US Lead-Gen Industry Map ("Ecosystem")
 
-Status: **approved 11 Nov 2026, with the decisions below.** Phase 1 (import and model) is built; see `CLAUDE.md`.
+Status: **approved 11 Nov 2026, with the decisions below.** Phases 1 (import and model) and 2 (core UI) are built; see `CLAUDE.md`.
 
 ### Decisions (11 Nov 2026)
 - **Blue Oak Credit / ServiceFintech is an existing client** (live), not in talks.

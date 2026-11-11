@@ -31,7 +31,9 @@ def test_lender_roles():
 
 def test_loan_range():
     assert p.loan_range("$500 - $5,000") == (500, 5000)
-    assert p.loan_range("up to $1,500 for first-time customers; up to $5,000 for returning") == (1500, 5000)
+    assert p.loan_range("up to $1,500 for first-time customers; up to $5,000 for returning") == (None, 5000)
+    assert p.loan_range("A: up to $1,200 new / $3,000 VIP; B: up to $1,000 new / $2,500 VIP") == (None, 3000)
+    assert p.loan_range("$300 - $2,500 (up to $1,200 new on homepage)") == (300, 2500)
     assert p.loan_range("Installment loans typically $100–$4,000") == (100, 4000)
     assert p.loan_range("up to $2,500") == (None, 2500)
     assert p.loan_range(None) == (None, None)

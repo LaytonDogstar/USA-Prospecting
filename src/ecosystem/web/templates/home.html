@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% from "_macros.html" import compliance_chip, score_cell %}
+{% block title %}Home{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>What matters now</h1>
+    <p class="muted">Best buyers and traffic sources we don't work with yet, what changed, and what needs a decision.</p></div>
+</div>
+
+<div class="kpis">
+  <a class="kpi {{ 'alert' if head.reviews }}" href="/review"><b>{{ head.reviews }}</b><span>items waiting for review</span></a>
+  <a class="kpi {{ 'alert' if head.unconfirmed }}" href="/lenders?our=any"><b>{{ head.unconfirmed }}</b><span>relationships to confirm</span></a>
+  <div class="kpi"><b>{{ head.working }}</b><span>live, contracting or in talks</span></div>
+  <div class="kpi"><b>{{ '{:,}'.format(head.orgs) }}</b><span>organisations on the map</span></div>
+  {% if head.blocked %}<div class="kpi"><b>{{ head.blocked }}</b><span>blocked (hidden from rankings)</span></div>{% endif %}
+</div>
+
+<div class="grid g2">
+  <section class="panel">
+    <h2>Top buyers not yet worked <a class="small" href="/lenders?our=none">All lenders →</a></h2>
+    <table class="compact">
+      <thead><tr><th>Lender</th><th>Type</th><th class="num">Buyer value</th><th></th></tr></thead>
+      <tbody>
+      {% for r in buyers %}
+        <tr><td><a href="/org/{{ r.id }}">{{ r.display_name }}</a>{% if r.parent_name %}<div class="small muted">{{ r.parent_name }}</div>{% endif %}</td>
+          <td class="small">{{ r.role_list | join(', ') or '—' }}</td>
+          <td class="num">{{ score_cell(r.score) }}</td>
+          <td>{{ compliance_chip(r.compliance, r.flags) }}</td></tr>
+      {% else %}<tr><td colspan="4" class="muted">No scored lenders yet. An admin can run a re-score under Admin.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Top supply sources not yet worked <a class="small" href="/supply?our=none">All supply →</a></h2>
+    <table class="compact">
+      <thead><tr><th>Source</th><th>Category</th><th class="num">Supply value</th><th></th></tr></thead>
+      <tbody>
+      {% for r in supply %}
+        <tr><td><a href="/org/{{ r.id }}">{{ r.display_name }}</a>{% if r.tier %} <span class="chip">{{ r.tier }}</span>{% endif %}
+              {% if r.parent_name %}<div class="small muted">{{ r.parent_name }}</div>{% endif %}</td>
+          <td class="small">{{ r.role_list | join(', ') or '—' }}</td>
+          <td class="num">{{ score_cell(r.score) }}</td>
+          <td>{{ compliance_chip(r.compliance, r.flags) }}</td></tr>
+      {% else %}<tr><td colspan="4" class="muted">No scored supply sources yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Waiting for review <a class="small" href="/review">Open inbox →</a></h2>
+    {% if reviews %}
+    <table class="compact"><tbody>
+      {% for kind, label, n in reviews %}<tr><td><a href="/review?kind={{ kind }}">{{ label }}</a></td><td class="num"><b>{{ n }}</b></td></tr>{% endfor %}
+    </tbody></table>
+    {% else %}<p class="muted">Nothing waiting.</p>{% endif %}
+  </section>
+
+  <section class="panel">
+    <h2>Recent changes</h2>
+    <p class="small muted">Edits, decisions and imports. Material changes found by the research jobs will appear here from Stage 2.</p>
+    <table class="compact"><tbody>
+    {% for a in activity %}
+      <tr><td class="small muted" style="white-space:nowrap">{{ a.at.strftime('%d %b %H:%M') }}</td>
+        <td class="small">{{ a.actor }}</td>
+        <td class="small">{{ a.action | replace('.', ' ') | replace('_', ' ') }}{% if a.after and a.after.get('note') %}: {{ a.after.get('note') }}{% elif a.after and a.after.get('title') %}: {{ a.after.get('title') }}{% endif %}</td></tr>
+    {% else %}<tr><td class="muted">No activity yet.</td></tr>{% endfor %}
+    </tbody></table>
+    {% if head.last_import %}<p class="small muted">Last import {{ head.last_import.strftime('%d %b %Y') }}.</p>{% endif %}
+  </section>
+</div>
+{% endblock %}

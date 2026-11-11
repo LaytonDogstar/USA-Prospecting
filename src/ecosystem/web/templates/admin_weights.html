@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field %}
+{% block title %}Scoring weights{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Admin</h1></div>
+  <form method="post" action="/admin/rescore">{{ csrf_field(csrf) }}<button class="primary">Re-score everything now</button></form>
+</div>
+{% include "_admin_nav.html" %}
+
+<div class="grid g2">
+{% for st, d in data.items() %}
+  <section class="panel">
+    <h2>{{ st | replace('_', ' ') | capitalize }} <span class="small muted">current: {{ d.current.label }}</span></h2>
+    <form method="post" action="/admin/weights/{{ st }}" class="stack">{{ csrf_field(csrf) }}
+      <table class="compact"><tbody>
+      {% for k, w in d.current.weights.weights.items() %}
+        <tr><td><b>{{ k | replace('_', ' ') }}</b><div class="small muted">{{ help.get(k, '') }}</div></td>
+          <td class="num"><input name="w_{{ k }}" value="{{ w | num }}" size="4" inputmode="decimal"></td></tr>
+      {% endfor %}
+      </tbody></table>
+      <label>Why this change <input name="note" placeholder="e.g. lead-buying evidence matters more than size"></label>
+      <button>Save as new version</button>
+      <p class="small muted">Weights are relative (they needn't add to 100). Saving creates a new version; re-score to apply it. Components nobody has data for yet are left out automatically.</p>
+    </form>
+    <details><summary>Versions</summary><table class="compact"><tbody>
+      {% for v in d.history %}<tr><td>{{ v.label }}</td><td class="small muted">{{ v.created_at.strftime('%d %b %Y %H:%M') }} · {{ v.created_by }}</td>
+        <td class="small">{% for k, w in v.weights.weights.items() %}{{ k }} {{ w | num }}{{ ', ' if not loop.last }}{% endfor %}{% if v.note %}<br><i>{{ v.note }}</i>{% endif %}</td></tr>{% endfor %}
+    </tbody></table></details>
+  </section>
+{% endfor %}
+</div>
+
+<section class="panel" style="margin-top:16px">
+  <h2>Recent re-scores</h2>
+  <table class="compact"><tbody>
+  {% for r in runs %}<tr><td class="small muted">{{ r.at.strftime('%d %b %Y %H:%M') }}</td><td class="small">{{ r.actor }}</td>
+    <td class="small">{% for k, v in r.after.items() if k != 'at' %}{{ k | replace('_', ' ') }}: {{ v.scored }} scored with {{ v.weights }}{{ '; ' if not loop.last }}{% endfor %}</td></tr>
+  {% else %}<tr><td class="muted">Never run.</td></tr>{% endfor %}
+  </tbody></table>
+</section>
+{% endblock %}

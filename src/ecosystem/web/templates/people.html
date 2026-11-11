@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}People{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>People</h1>
+    <p class="muted">Business contacts only. Add people from an organisation's page. Found by hand in Sales Navigator or from public sources (filings, press releases, speaker pages). Never scraped from LinkedIn.</p></div>
+  <a class="btn" href="{{ qs(f, format='csv') }}">Export CSV</a>
+</div>
+<form class="filters" method="get">
+  <label>Search <input name="q" value="{{ f.q }}" placeholder="name, title or organisation"></label>
+  <label>Role <select name="role_category"><option value="">Any</option>
+    {% for k, label in role_categories.items() %}<option value="{{ k }}" {{ 'selected' if f.role_category == k }}>{{ label }}</option>{% endfor %}</select></label>
+  <button class="primary">Filter</button>
+</form>
+<div class="panel table-wrap">
+<table>
+  <thead><tr><th>Name</th><th>Title</th><th>Organisation</th><th>Role</th><th>Contact</th><th>Source</th><th>Verified</th></tr></thead>
+  <tbody>
+  {% for p in rows %}
+    <tr><td>{{ p.name }}</td><td>{{ p.title or '—' }}</td>
+      <td>{% if p.org_id %}<a href="/org/{{ p.org_id }}#people">{{ p.org_name }}</a>{% endif %}</td>
+      <td class="small">{{ role_categories.get(p.role_category, p.role_category) }}</td>
+      <td class="small">{{ p.email or '' }}{% if p.linkedin_url %} <a href="{{ p.linkedin_url }}" rel="noopener noreferrer" target="_blank">LinkedIn</a>{% endif %}</td>
+      <td class="small">{{ p.source }}</td><td class="small muted">{{ p.last_verified_at.strftime('%d %b %Y') if p.last_verified_at else '—' }}</td></tr>
+  {% else %}<tr><td colspan="7" class="muted">No people yet. Phase 4 generates role-based search lists for the A/B organisations.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

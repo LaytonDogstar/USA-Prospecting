@@ -9,7 +9,7 @@ from sqlalchemy import select, update, delete, func
 from sqlalchemy.orm import Session
 
 from . import models as m
-from .normalise import compact, name_similarity, norm_name, domain_stem, raw_key
+from .normalise import compact, name_similarity, norm_domain, norm_name, domain_stem, raw_key
 
 
 class Store:
@@ -116,7 +116,7 @@ class Store:
             best = max([name_similarity(n, a) for n in names for a in self.org_names(owner)]
                        + [name_similarity(n, domain_stem(d)) for n in names for d in domains] + [0])
             if best >= 0.6:
-                return self.org(owner), "domain"
+                return self._upgrade_name(self.org(owner), name), "domain"
             reasons.append(f"shares domain {', '.join(domains)} with a differently named organisation")
         elif len(owners) > 1:
             reasons.append(f"domains {', '.join(domains)} belong to {len(owners)} different organisations")
@@ -147,7 +147,7 @@ class Store:
                     reasons.append("same name but different domains")
                     owners = {cand}
                 else:
-                    return self.org(cand), "name"
+                    return self._upgrade_name(self.org(cand), name), "name"
             elif not reasons and len(cands) > 1:
                 reasons.append(f"name matches {len(cands)} organisations")
                 owners = cands
@@ -161,6 +161,13 @@ class Store:
                             [org.id, other], {"reasons": reasons})
             return org, "created_ambiguous"
         return org, "created"
+
+    def _upgrade_name(self, org: m.Organisation, name: str) -> m.Organisation:
+        """A record first seen only as a domain (e.g. on a partner list) takes the real name when one arrives."""
+        if name and norm_domain(org.display_name) == org.display_name.lower() and not norm_domain(name):
+            self.add_alias(org.id, name)
+            org.display_name = name
+        return org
 
     # ------------------------------------------------------------ evidence
     def row_source(self, import_file: m.ImportFile, sheet: str, row_number: int) -> m.Source:

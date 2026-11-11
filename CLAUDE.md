@@ -9,7 +9,7 @@ Two tools live here:
 - **`src/ecosystem/`: the US lead-gen industry map ("Ecosystem").** This is the main build. Postgres + Python. Its plan and phases are in `docs/PLAN.md`.
 - **`src/prospecting/`: the older SQLite tool.** It builds buyer profiles from pingtree exports and the 2026-09 targets workbook. It is kept working until the Ecosystem app covers it; its buyer profiles will feed buyer-value scoring. Don't extend it.
 
-Status: Phase 1 (import and data model) is done. Phase 2 (web UI with username/password login) is next.
+Status: Phase 1 (import and data model) and Phase 2 (web app: login, home, tables, entity pages with evidence drawer, review inbox, admin) are done. Phase 3 (ecosystem map and state map) is next.
 
 ## Rules that matter
 
@@ -36,11 +36,25 @@ src/ecosystem/
   matching.py    possible-match sweep against our relationships; name dedup suggestions
   reconcile.py   count reconciliation report
   auth.py        username/password (argon2, lockout after 5 failures)
+  scoring.py     buyer_value and supply_value: components (with claim ids), versioned weights, rescore()
   cli.py         python -m ecosystem <command>
+  web/           FastAPI app (server-rendered Jinja, no front-end build)
+    app.py       create_app(): sessions, security headers, routers
+    deps.py      get_db, current_user, admin_user (admin + CSRF for every POST), render(), template filters
+    views.py     read queries for tables/home (whitelisted SQL fragments, bound params)
+    routes/      auth, home, tables (lenders/supply/people + CSV), entity (page, evidence, source, edits),
+                 review (inbox + decisions: merge / link / approve / reject), admin (weights, rescore, users,
+                 imports upload, audit)
+    templates/   Jinja; _macros.html has the evidence "i" link, chips and score cells
+    static/      style.css (light/dark tokens), app.js (evidence drawer, confirm prompts)
 migrations/      Alembic. 0001 = initial schema + entity_current view
 tests/ecosystem/ pytest; conftest builds made-up workbooks. test_acceptance_real_data.py runs only
                  when the real files and data/reference/acceptance.json are present.
 ```
+
+Scoring rules: components score 0-100. A component nobody has data for yet (state overlap, traffic overlap: they need the internal source) is left out for everyone; a component missing for one organisation scores 25 ("unknown") so thin records don't outrank researched ones. Compliance is a gate, not a component: `blocked` is hidden from ranked views by default, `review` shows a warning.
+
+Web rules: every page needs a session except `/login`, `/healthz`, `/static`. Viewers read; admins edit. Every POST goes through `admin_user` (role + CSRF). Every edit writes `audit_log`. Merges and links only happen from a review decision.
 
 Key tables: `entity` (shared id space) → `organisation`, `brand`, `domain`, `person`, `page`; `name_alias`; `org_role`; `entity_state`; `relationship` (edges); `our_relationship` (+history); `source`, `claim`, `claim_source`; `entity_current` (view: latest accepted claim per attribute); `metric_snapshot`; `compliance_flag`, `compliance_status`; `score`, `weights_version`; `review_item`; `audit_log`; `app_user`; `job_run`, `api_usage`, `http_cache` (Stage 2).
 
@@ -59,10 +73,18 @@ python -m ecosystem import-all       # imports, sweeps, prints the reconciliatio
 python -m ecosystem review-list --kind possible_match
 python -m ecosystem review-decide 153 approve --merge-into <org id> --note "same company"
 python -m ecosystem create-user layton --role admin
+python -m ecosystem rescore
+SECRET_KEY=dev uvicorn ecosystem.web:app --reload   # http://localhost:8000
 pytest                                # needs TEST_DATABASE_URL; the schema is rebuilt there
 ```
 
 A throwaway local Postgres: `initdb -D /var/tmp/pgdev/data -U postgres -A trust` then `pg_ctl -D /var/tmp/pgdev/data -o "-p 5433" start`, and create the `ecosystem` and `ecosystem_test` databases.
+
+## Railway
+
+One `web` service (see `railway.json`): on start it runs migrations, `bootstrap-admin` (creates the first admin from `ADMIN_USERNAME` / `ADMIN_PASSWORD` only when there are no users), then uvicorn. Health check `/healthz`.
+
+Variables: `DATABASE_URL` (from the Railway Postgres), `SECRET_KEY` (long random), `ECOSYSTEM_ENV=production` (secure cookies, HSTS, refuses to start without `SECRET_KEY`), `ECOSYSTEM_DATA_DIR=/data` with a **Railway volume mounted at /data** so uploaded spreadsheets and reference CSVs survive deploys. Turn on Postgres backups. Upload the files under Admin → Imports. Uploading runs the import, the sweeps and a re-score.
 
 Schema changes: edit `models.py`, then `alembic revision --autogenerate -m "..."`, review the file, then `alembic upgrade head`. `alembic check` must report no pending changes.
 

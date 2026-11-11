@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Source{% endblock %}
+{% block content %}
+<div class="page-head"><div>
+  <h1>Source</h1>
+  <p>{% if src.url %}<a href="{{ src.url }}" rel="noopener noreferrer" target="_blank">{{ src.url }}</a>{% else %}<b>{{ label }}</b>{% endif %}
+    <span class="chip">{{ src.source_type | replace('_', ' ') }}</span></p>
+  {% if file %}<p class="small muted">File imported {{ file.imported_at.strftime('%d %b %Y %H:%M') }} by {{ file.imported_by }} · SHA-256 <span class="mono">{{ file.sha256[:16] }}…</span>. The original is kept untouched in data/raw.</p>{% endif %}
+  {% if src.title and not file %}<p class="small muted">{{ src.title }}</p>{% endif %}
+</div></div>
+<div class="panel table-wrap">
+  <h2>{{ 'Everything taken from this row' if file else 'Facts citing this source' }} ({{ claims | length }})</h2>
+  <table class="compact"><thead><tr><th>Organisation</th><th>Fact</th><th>Value</th><th>Confidence</th></tr></thead><tbody>
+  {% for c in claims %}<tr><td><a href="/org/{{ c.entity_id }}">{{ names.get(c.entity_id, c.entity_id) }}</a></td>
+    <td class="small">{{ c.attribute | replace('_', ' ') }}</td><td class="small pre">{{ c.value | val }}</td><td class="small">{{ c.confidence }}</td></tr>{% endfor %}
+  </tbody></table>
+</div>
+{% endblock %}
