@@ -136,7 +136,9 @@ def users_update(uid: int, request: Request, action: str = Form(...), password: 
 @router.get("/imports")
 def imports_page(request: Request, db: Session = Depends(get_db), user=Depends(admin_view)):
     files = list(db.scalars(select(m.ImportFile).order_by(m.ImportFile.imported_at.desc())))
-    return render(request, "admin_imports.html", user, files=files, section="imports",
+    on_disk = sorted(p.name for d in (RAW_DIR, REFERENCE_DIR) if d.exists() for p in d.iterdir()
+                     if any(pat.match(p.name) for pat, _ in UPLOAD_RULES))
+    return render(request, "admin_imports.html", user, files=files, section="imports", on_disk=on_disk,
                   patterns=["targets_YYYYMMDD.xlsx", "CLE_…traffic_options….xlsx", "owner_groups.csv",
                             "our_relationships_seed.csv"])
 
@@ -173,6 +175,18 @@ async def imports_upload(request: Request, upload: UploadFile = File(...), db: S
     rescore(st)
     st.audit("import.upload", "import_file", None, None, {"file": name, "result": {k: str(v)[:200] for k, v in out.items()}})
     flash(request, f"Uploaded {name}, ran the import, the sweeps and a re-score.")
+    return RedirectResponse("/admin/imports", status_code=303)
+
+
+@router.post("/reset")
+def reset_route(request: Request, confirm: str = Form(""), db: Session = Depends(get_db), user=Depends(admin_user)):
+    if confirm.strip() != "RESET":
+        flash(request, "Not reset: type RESET in capitals to confirm.")
+        return RedirectResponse("/admin/imports", status_code=303)
+    from ...cli import reset_data
+    out = reset_data(store_for(db, user))
+    files = [k for k in out if k.endswith((".xlsx", ".csv"))]
+    flash(request, f"Data reset and re-imported in order: {', '.join(files) or 'no files found'}.")
     return RedirectResponse("/admin/imports", status_code=303)
 
 

@@ -23,4 +23,17 @@
   </tbody></table>
 </section>
 </div>
+
+<section class="panel" style="margin-top:16px">
+  <h2>Start again</h2>
+  <p>Clears everything built from the imports, then re-imports the files already uploaded, in the right order
+    (targets → traffic → owner groups → relationship seeds). You don't need to upload anything again.</p>
+  <p class="small">Files that will be re-imported: {{ on_disk | join(', ') if on_disk else 'none uploaded yet' }}.</p>
+  <div class="warnbox small">This also removes review decisions, relationship and compliance edits and people added since the import.
+    User accounts, scoring weights and the audit log are kept.</div>
+  <form method="post" action="/admin/reset" class="row" data-confirm="Clear all imported data and re-import? This can't be undone.">{{ csrf_field(csrf) }}
+    <label>Type RESET to confirm <input name="confirm" autocomplete="off" required></label>
+    <button class="danger">Reset and re-import</button>
+  </form>
+</section>
 {% endblock %}

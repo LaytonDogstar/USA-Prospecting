@@ -4,7 +4,7 @@ import re
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
 from ecosystem import models as m
@@ -226,3 +226,13 @@ def test_admin_users(web, session):
     web.post(f"/admin/users/{u.id}", data={"action": "deactivate", "csrf": csrf(web, "/admin/users")})
     session.expire_all()
     assert session.get(m.AppUser, u.id).is_active is False
+
+
+def test_reset_needs_typed_confirmation(web, session):
+    login(web)
+    before = session.scalar(select(func.count()).select_from(m.Organisation))
+    r = web.post("/admin/reset", data={"confirm": "reset", "csrf": csrf(web, "/admin/imports")})
+    assert "type RESET in capitals" in r.text
+    session.expire_all()
+    assert session.scalar(select(func.count()).select_from(m.Organisation)) == before
+    assert "Start again" in web.get("/admin/imports").text

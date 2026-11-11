@@ -74,6 +74,7 @@ python -m ecosystem review-list --kind possible_match
 python -m ecosystem review-decide 153 approve --merge-into <org id> --note "same company"
 python -m ecosystem create-user layton --role admin
 python -m ecosystem rescore
+python -m ecosystem reset-data --yes  # clear imported data, re-import data/raw + data/reference in order
 SECRET_KEY=dev uvicorn ecosystem.web:app --reload   # http://localhost:8000
 pytest                                # needs TEST_DATABASE_URL; the schema is rebuilt there
 ```
@@ -84,7 +85,7 @@ A throwaway local Postgres: `initdb -D /var/tmp/pgdev/data -U postgres -A trust`
 
 One `web` service (see `railway.json`): on start it runs migrations, `bootstrap-admin` (creates the first admin from `ADMIN_USERNAME` / `ADMIN_PASSWORD` only when there are no users), then uvicorn. Health check `/healthz`.
 
-Variables: `DATABASE_URL` (from the Railway Postgres), `SECRET_KEY` (long random), `ECOSYSTEM_ENV=production` (secure cookies, HSTS, refuses to start without `SECRET_KEY`), `ECOSYSTEM_DATA_DIR=/data` with a **Railway volume mounted at /data** so uploaded spreadsheets and reference CSVs survive deploys. Turn on Postgres backups. Upload the files under Admin → Imports. Uploading runs the import, the sweeps and a re-score.
+Variables: `DATABASE_URL` (from the Railway Postgres), `SECRET_KEY` (long random), `ECOSYSTEM_ENV=production` (secure cookies, HSTS, refuses to start without `SECRET_KEY`), `ECOSYSTEM_DATA_DIR=/data` with a **Railway volume mounted at /data** so uploaded spreadsheets and reference CSVs survive deploys. Turn on Postgres backups. Upload the files under Admin → Imports. Uploading runs the import, the sweeps and a re-score. Order matters (targets → traffic → owner groups → seeds); if files went up in the wrong order, use "Reset and re-import" on the same page, which clears imported data (keeping users, weights and the audit log) and re-imports the files on the volume in the right order.
 
 Schema changes: edit `models.py`, then `alembic revision --autogenerate -m "..."`, review the file, then `alembic upgrade head`. `alembic check` must report no pending changes.
 

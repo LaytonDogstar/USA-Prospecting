@@ -13,7 +13,6 @@ from sqlalchemy import select
 
 from . import models as m
 from .auth import create_user
-from .config import RAW_DIR, REFERENCE_DIR
 from .db import session_scope
 from .importers import (default_attribute_defs, import_owner_groups, import_relationship_seed, import_targets,
                         import_traffic)
@@ -30,8 +29,10 @@ def migrate(url: str | None = None) -> None:
     command.upgrade(cfg, "head")
 
 
-def import_all(store: Store, raw: Path = RAW_DIR, ref: Path = REFERENCE_DIR) -> dict:
+def import_all(store: Store, raw: Path | None = None, ref: Path | None = None) -> dict:
     """The whole Phase 1 pipeline, in order. Each step is idempotent."""
+    from . import config
+    raw, ref = raw or config.RAW_DIR, ref or config.REFERENCE_DIR
     out = {}
     default_attribute_defs(store)
     targets = sorted(raw.glob("targets_*.xlsx"))
@@ -48,6 +49,28 @@ def import_all(store: Store, raw: Path = RAW_DIR, ref: Path = REFERENCE_DIR) -> 
     out["possible_match_sweep"] = possible_match_sweep(store)
     out["rescore"] = rescore(store)
     return out
+
+
+# Everything built from imports and reviews. Kept: app_user, audit_log, weights_version, attribute_def,
+# tracked_keyword and the Stage 2 job tables.
+DATA_TABLES = (
+    "review_item", "score", "compliance_status_history", "compliance_status", "compliance_flag", "metric_snapshot",
+    "claim_source", "our_relationship_history", "our_relationship", "relationship", "entity_state", "org_role",
+    "name_alias", "page", "person", "domain", "brand", "organisation", "claim", "source", "import_file", "entity",
+)
+
+
+def reset_data(store: Store) -> dict:
+    """Wipe imported data and everything decided on it, then re-import the files on disk in the correct order.
+
+    Users, scoring weights and the audit log are kept. The uploaded files themselves are not touched.
+    """
+    from sqlalchemy import text
+    store.s.execute(text(f"TRUNCATE {', '.join(DATA_TABLES)} RESTART IDENTITY CASCADE"))
+    store.s.expire_all()          # drop ORM objects that pointed at the deleted rows
+    store._url_sources.clear()    # and the per-import cache of URL sources
+    store.audit("data.reset", None, None, None, {"note": "imported data cleared; re-importing files on disk"})
+    return import_all(store)
 
 
 def bootstrap_admin() -> str:
@@ -75,6 +98,8 @@ def main(argv=None) -> int:
         sub.add_parser(name).add_argument("path", type=Path)
     sub.add_parser("sweep", help="raise possible matches against our relationships")
     sub.add_parser("rescore", help="recompute buyer and supply value with the current weights")
+    rs = sub.add_parser("reset-data", help="clear imported data and re-import the files on disk in order")
+    rs.add_argument("--yes", action="store_true", help="required: confirms the reset")
     sub.add_parser("bootstrap-admin", help="create the first admin from ADMIN_USERNAME / ADMIN_PASSWORD")
     rp = sub.add_parser("reconcile", help="print the count reconciliation")
     rp.add_argument("--json", action="store_true")
@@ -125,6 +150,12 @@ def main(argv=None) -> int:
             print(possible_match_sweep(store))
         elif a.cmd == "rescore":
             print(rescore(store))
+        elif a.cmd == "reset-data":
+            if not a.yes:
+                print("This clears all imported data, review decisions and relationship edits. Re-run with --yes.",
+                      file=sys.stderr)
+                return 1
+            print(json.dumps(reset_data(store), indent=2, default=str))
         elif a.cmd == "reconcile":
             r = report(s)
             print(json.dumps(r, indent=2, default=str) if a.json else to_markdown(r))
