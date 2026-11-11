@@ -1,6 +1,7 @@
 """Read queries for the pages. SQL is assembled only from whitelisted fragments; user input is always bound."""
 from sqlalchemy import text
 
+from ..footprint import STATE_SERVES_SQL
 from ..scoring import LENDER_ROLES, SUPPLY_ROLES
 
 ROLE_LABELS = {
@@ -86,8 +87,7 @@ def org_table(db, kind: str, f: dict, limit: int | None = 100, offset: int = 0) 
         where.append("EXISTS (SELECT 1 FROM compliance_flag cf WHERE cf.entity_id = o.id)")
     if f.get("state") and len(f["state"]) == 2:
         params["state"] = f["state"].upper()
-        where.append("EXISTS (SELECT 1 FROM entity_state es WHERE es.entity_id = o.id AND es.state = :state"
-                     " AND es.basis IN ('lends','licensed'))")
+        where.append(STATE_SERVES_SQL)
     if f.get("tier") in ("A", "B", "C"):
         params["tier"] = f["tier"]
         where.append("o.tier = :tier")

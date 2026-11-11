@@ -122,3 +122,35 @@ details > summary { cursor: pointer; color: var(--muted); margin: 6px 0; }
   .who span { display: none; }
   header.top .in { gap: 10px; }
 }
+
+/* ecosystem map */
+.map-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; }
+.map-canvas { position: relative; min-width: 0; }
+.map-tools { position: absolute; top: 10px; left: 10px; z-index: 5; display: flex; gap: 4px; }
+.map-tools button { padding: 4px 10px; background: var(--panel); box-shadow: var(--shadow); }
+#cy { height: calc(100vh - 250px); min-height: 520px; padding: 0; overflow: hidden; }
+#map-side { max-height: calc(100vh - 250px); overflow-y: auto; }
+#map-side ul { padding-left: 18px; margin: 4px 0 8px; }
+.legend { list-style: none; padding: 0 !important; font-size: 12px; }
+.legend li { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: wrap; }
+.legend .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; border: 2px solid transparent; }
+.legend .ring-warn { border: 3px solid var(--warn); }
+.legend .ring-bad { border: 3px solid var(--bad); }
+.legend .sq { width: 14px; height: 10px; border-radius: 3px; background: var(--line-strong); display: inline-block; }
+.legend .line { width: 22px; height: 0; border-top: 2px solid var(--muted); display: inline-block; }
+.legend .line.dashed { border-top-style: dashed; }
+.legend .line.dotted { border-top-style: dotted; }
+@media (max-width: 900px) { .map-wrap { grid-template-columns: 1fr; } .map-canvas { position: relative; min-width: 0; }
+.map-tools { position: absolute; top: 10px; left: 10px; z-index: 5; display: flex; gap: 4px; }
+.map-tools button { padding: 4px 10px; background: var(--panel); box-shadow: var(--shadow); }
+#cy { height: 70vh; } }
+
+/* state tile map */
+.tiles { max-width: 760px; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-template-rows: repeat(8, auto); gap: 4px; }
+.tile { aspect-ratio: 1; border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-decoration: none; color: var(--ink); font-size: 11px; line-height: 1.15;
+  background: color-mix(in srgb, var(--accent) calc(var(--share) * 85% + 6%), var(--panel)); border: 1px solid var(--line); }
+.tile b { font-size: 12px; }
+.tile i { font-style: normal; font-size: 9px; color: var(--good); font-weight: 700; }
+.tile:hover { outline: 2px solid var(--accent); text-decoration: none; }
+@media (max-width: 640px) { .tile { font-size: 9px; } .tile b { font-size: 10px; } .tile i { display: none; } }

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}State map{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>State map</h1>
+    <p class="muted">How many lenders on the map serve each state, and how many of them we already sell to. Click a state to list its lenders.</p></div>
+</div>
+
+<div class="kpis">
+  <div class="kpi"><b>{{ s.known_footprint }}</b><span>lenders with a known footprint</span></div>
+  <div class="kpi {{ 'alert' if s.unknown_footprint }}"><b>{{ s.unknown_footprint }}</b><span>lenders with footprint not yet researched</span></div>
+  <div class="kpi {{ 'alert' if s.our_buyers_unknown }}"><b>{{ s.our_buyers - s.our_buyers_unknown }} / {{ s.our_buyers }}</b><span>our live buyers with a known footprint</span></div>
+</div>
+{% if s.our_buyers_unknown %}<div class="warnbox small">{{ s.our_buyers_unknown }} of our live buyers have no state data yet, so the "ours" figures undercount.
+  Phase 4 research and the pingtree buyer filters will fill this in. Gaps (traffic in a state but few buyers) need traffic-by-state from the internal source.</div>{% endif %}
+
+<section class="panel" style="margin-bottom:16px">
+  <h2>Lenders serving each state</h2>
+  <div class="tiles" role="list">
+    {% for code, v in s.states.items() if v.tile %}
+      {% set share = (v.total / s.max_total) if s.max_total else 0 %}
+      <a role="listitem" class="tile" href="/lenders?state={{ code }}"
+         style="grid-row: {{ v.tile[0] + 1 }}; grid-column: {{ v.tile[1] + 1 }}; --share: {{ '%.2f' | format(share) }}"
+         title="{{ names[code] }}: {{ v.total }} lenders{% if v.ours %}, {{ v.ours }} ours{% endif %}">
+        <b>{{ code }}</b><span>{{ v.total }}</span>{% if v.ours %}<i>{{ v.ours }} ours</i>{% endif %}
+      </a>
+    {% endfor %}
+  </div>
+  <p class="small muted">Darker = more lenders. Counts include lenders that list the state, lend nationwide, or publish a "not available in" list that leaves it out. Blocked lenders are excluded.</p>
+</section>
+
+
+<section class="panel table-wrap">
+  <h2>By state</h2>
+  <table class="compact">
+    <thead><tr><th>State</th><th class="num">Lenders</th>
+      {% for t in types %}<th class="num">{{ type_labels[t] }}</th>{% endfor %}<th class="num">Ours</th><th>How we know</th></tr></thead>
+    <tbody>
+    {% for code, v in rows %}
+      <tr><td><a href="/lenders?state={{ code }}">{{ names[code] }}</a></td><td class="num"><b>{{ v.total }}</b></td>
+        {% for t in types %}<td class="num">{{ v.by_type.get(t) or '' }}</td>{% endfor %}
+        <td class="num">{{ v.ours or '' }}</td>
+        <td class="small muted">{% for k in ['listed', 'nationwide', 'not excluded'] if v.by_basis.get(k) %}{{ v.by_basis[k] }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

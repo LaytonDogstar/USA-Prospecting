@@ -237,3 +237,17 @@ def test_reset_needs_typed_confirmation(web, session):
     assert session.scalar(select(func.count()).select_from(m.Organisation)) == before
     page = web.get("/admin/imports").text
     assert "Start again" in page and "Rows imported per sheet" in page and "Never reset." in page
+
+
+def test_map_and_state_pages(web, session):
+    login(web)
+    assert "Ecosystem map" in web.get("/map").text
+    data = web.get("/map/data?view=all").json()
+    assert data["nodes"] and "stats" in data
+    assert any(n["label"] == "Prairie Holdings, LLC" for n in data["nodes"])
+    assert web.get("/map/data?view=all&expand=999999").status_code == 200
+    page = web.get("/states").text
+    assert "Lenders serving each state" in page and 'href="/lenders?state=TX"' in page
+    assert "Prairie Holdings" in web.get("/lenders?state=TX").text
+    assert "Prairie Holdings" not in web.get("/lenders?state=NY").text
+    assert web.get("/static/vendor/cytoscape-3.30.4.min.js").status_code == 200

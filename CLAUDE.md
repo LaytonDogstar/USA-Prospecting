@@ -9,7 +9,7 @@ Two tools live here:
 - **`src/ecosystem/`: the US lead-gen industry map ("Ecosystem").** This is the main build. Postgres + Python. Its plan and phases are in `docs/PLAN.md`.
 - **`src/prospecting/`: the older SQLite tool.** It builds buyer profiles from pingtree exports and the 2026-09 targets workbook. It is kept working until the Ecosystem app covers it; its buyer profiles will feed buyer-value scoring. Don't extend it.
 
-Status: Phase 1 (import and data model) and Phase 2 (web app: login, home, tables, entity pages with evidence drawer, review inbox, admin) are done. Phase 3 (ecosystem map and state map) is next.
+Status: Phases 1 (import and data model), 2 (web app: login, home, tables, entity pages with evidence drawer, review inbox, admin) and 3 (ecosystem map and state map) are done and deployed on Railway. Phase 4 (enrichment of existing entities) is next.
 
 ## Rules that matter
 
@@ -37,17 +37,24 @@ src/ecosystem/
   reconcile.py   count reconciliation report
   auth.py        username/password (argon2, lockout after 5 failures)
   scoring.py     buyer_value and supply_value: components (with claim ids), versioned weights, rescore()
+  mapgraph.py    graph for the ecosystem map: layers, filters, focused default view, owner-group folding
+                 (groups of 2+ fold; expand=<ids> opens them), our pingtree node drawn from our_relationship
+  footprint.py   which states a lender serves (listed / nationwide / not on its exclusion list) and the
+                 state map summary; STATE_SERVES_SQL is the same rule for the lenders table filter
   cli.py         python -m ecosystem <command>
   web/           FastAPI app (server-rendered Jinja, no front-end build)
     app.py       create_app(): sessions, security headers, routers
     deps.py      get_db, current_user, admin_user (admin + CSRF for every POST), render(), template filters
     views.py     read queries for tables/home (whitelisted SQL fragments, bound params)
-    routes/      auth, home, tables (lenders/supply/people + CSV), entity (page, evidence, source, edits),
+    routes/      auth, home, tables (lenders/supply/people + CSV), maps (/map, /map/data JSON, /states),
+                 entity (page, evidence, source, edits),
                  review (inbox + decisions: merge / link / approve / reject), admin (weights, rescore, users,
                  imports upload, audit)
     templates/   Jinja; _macros.html has the evidence "i" link, chips and score cells
-    static/      style.css (light/dark tokens), app.js (evidence drawer, confirm prompts)
-migrations/      Alembic. 0001 = initial schema + entity_current view
+    static/      style.css (light/dark tokens), app.js (evidence drawer, confirm prompts), map.js (Cytoscape
+                 map; text inserted with textContent only), vendor/ (Cytoscape.js 3.30.4, MIT, served locally
+                 because the CSP only allows same-origin scripts)
+migrations/      Alembic. 0001 = initial schema + entity_current view; 0002 = latest_score view
 tests/ecosystem/ pytest; conftest builds made-up workbooks. test_acceptance_real_data.py runs only
                  when the real files and data/reference/acceptance.json are present.
 ```
@@ -86,6 +93,8 @@ A throwaway local Postgres: `initdb -D /var/tmp/pgdev/data -U postgres -A trust`
 One `web` service (see `railway.json`): on start it runs migrations, `bootstrap-admin` (creates the first admin from `ADMIN_USERNAME` / `ADMIN_PASSWORD` only when there are no users), then uvicorn. Health check `/healthz`.
 
 Variables: `DATABASE_URL` (from the Railway Postgres), `SECRET_KEY` (long random), `ECOSYSTEM_ENV=production` (secure cookies, HSTS, refuses to start without `SECRET_KEY`), `ECOSYSTEM_DATA_DIR=/data` with a **Railway volume mounted at /data** so uploaded spreadsheets and reference CSVs survive deploys. Turn on Postgres backups. Upload the files under Admin → Imports. Uploading runs the import, the sweeps and a re-score. Uploads are recognised by their contents (`importers.detect_kind`), not their names, and stored under the names the importer expects. Order matters (targets → traffic → owner groups → seeds): if a file arrives after ones that should come later and nobody has made decisions or edits yet, the upload re-imports everything in order automatically; otherwise it warns. "Reset and re-import" on the same page does it by hand: which clears imported data (keeping users, weights and the audit log) and re-imports the files on the volume in the right order.
+
+Railway project "Prsopecting Tool": service `USA-Prospecting` (deploys this repo on push), `Postgres` (private only, no public address), volume at /data. Live URL https://usa-prospecting-production.up.railway.app. `railway.json` (Config as Code) is deprecated by Railway and stops working on 2026-12-01: migrate with `railway config migrate --lang py --variables unmanaged` then `railway config migrate cutover` (a live change: do it with the owner's go-ahead, ideally after merging to `main`, since the generated file pins the branch).
 
 Schema changes: edit `models.py`, then `alembic revision --autogenerate -m "..."`, review the file, then `alembic upgrade head`. `alembic check` must report no pending changes.
 

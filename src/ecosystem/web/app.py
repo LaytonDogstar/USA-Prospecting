@@ -56,7 +56,7 @@ def create_app() -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
-    from .routes import admin, auth, entity, home, review, tables
-    for module in (auth, home, tables, entity, review, admin):
+    from .routes import admin, auth, entity, home, maps, review, tables
+    for module in (auth, home, tables, maps, entity, review, admin):
         app.include_router(module.router)
     return app
