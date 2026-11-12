@@ -7,6 +7,7 @@ Results are still only *proposed* claims and review items: a schedule never deci
 The app checks for due schedules every few minutes in a background thread. A Postgres advisory lock makes sure
 only one copy runs a schedule, even if Railway briefly runs two instances during a deploy.
 """
+import json
 import logging
 import os
 import threading
@@ -127,7 +128,11 @@ def run_due(session_factory, at: datetime | None = None) -> list[tuple[str, str]
                 status = run_schedule(s, sched)
                 s.commit()  # each job's results are kept even if a later one fails
                 done.append((job, status))
-                log.info("scheduled %s: %s", job, status)
+                run = s.get(m.JobRun, sched.last_run_id) if sched.last_run_id else None
+                result = (run.args or {}).get("result") if run else None
+                log.info("scheduled %s: %s%s", job, status,
+                         f" | cost ${float(run.cost_usd or 0):.2f}, {run.claims_written} facts, "
+                         f"{len(run.errors or [])} errors | {json.dumps(result, default=str)[:400]}" if run else "")
         finally:
             s.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": LOCK_KEY})
             s.commit()
