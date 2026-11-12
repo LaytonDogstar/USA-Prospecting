@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Daily report{% endblock %}
+{% block content %}
+<div class="page-head"><div>
+  <h1>Daily report</h1>
+  <p class="muted">Since {{ r.since.strftime('%d %b %H:%M') }} UTC.
+    {% for h, lbl in ((24, 'Last day'), (72, '3 days'), (168, 'Week')) %}<a href="/report?hours={{ h }}" class="{{ 'muted' if h != hours }}">{{ lbl }}</a>{{ ' · ' if not loop.last }}{% endfor %}</p>
+</div></div>
+
+<div class="kpis">
+  <a class="kpi" href="/review?status=done"><b>{{ r.by_assistant | length }}</b><span>decided by the assistant</span></a>
+  <a class="kpi" href="/review?status=done"><b>{{ r.by_people | length }}</b><span>decided by people</span></a>
+  <a class="kpi {{ 'alert' if r.open_total }}" href="/review"><b>{{ r.open_total }}</b><span>waiting for you ({{ r.recommended_open }} with a recommendation)</span></a>
+  <span class="kpi"><b>${{ '%.2f' | format(r.spend.get('anthropic', {}).get('usd', 0)) }}</b><span>Claude spend in this period</span></span>
+  <span class="kpi"><b>{{ '{:,.0f}'.format(r.spend.get('ahrefs', {}).get('units', 0)) }}</b><span>Ahrefs units in this period</span></span>
+</div>
+
+{% if r.problems %}<div class="warnbox"><b>Needs attention:</b>
+  <ul class="small">{% for run in r.problems %}<li>{{ run.job | replace('_', ' ') }} #{{ run.id }}: {{ run.status | replace('_', ' ') }}{% if run.errors %}: {{ run.errors[-1].message | truncate(160) }}{% endif %}</li>{% endfor %}</ul>
+  <a href="/admin/research">See runs and budgets</a></div>{% endif %}
+
+<div class="grid g2">
+<section class="panel">
+  <h2>Waiting for you</h2>
+  {% if not r.waiting %}<p class="muted">Nothing. The inbox is clear.</p>{% endif %}
+  {% for kind, items in r.waiting.items() %}
+    <h3><a href="/review?kind={{ kind }}">{{ labels.get(kind, kind) }}</a> <span class="muted small">{{ items | length }}</span></h3>
+    <ul class="small">{% for it in items[:8] %}{% set a = it.payload.get('assistant') %}
+      <li><a href="/review?kind={{ kind }}#item-{{ it.id }}">{{ it.title | truncate(90) }}</a>
+        {% if a %}<br><span class="chip {{ 'good' if a.confidence == 'high' else '' }}">{{ a.label }}</span> <span class="muted">{{ a.why | truncate(140) }}</span>{% endif %}</li>
+    {% endfor %}{% if items | length > 8 %}<li class="muted">and {{ items | length - 8 }} more</li>{% endif %}</ul>
+  {% endfor %}
+</section>
+<section class="panel">
+  <h2>Decided by the assistant</h2>
+  {% if not r.by_assistant %}<p class="muted">Nothing in this period.</p>{% endif %}
+  <ul class="small">{% for it in r.by_assistant[:40] %}<li>{{ it.title | truncate(80) }}: <b>{{ it.status }}</b> <span class="muted">{{ (it.note or '') | replace('assistant: ', '') }}</span></li>{% endfor %}
+  {% if r.by_assistant | length > 40 %}<li class="muted">and {{ r.by_assistant | length - 40 }} more under Review → Decided</li>{% endif %}</ul>
+  <p class="small muted">Wrong? Each one is in Review → Decided and the audit log; tell us the item number and it can be unpicked.</p>
+  <h2 style="margin-top:16px">Runs</h2>
+  {% if not r.runs %}<p class="muted">No runs in this period.</p>{% endif %}
+  <table class="compact"><tbody>{% for run in r.runs %}<tr><td class="small">{{ run.started_at.strftime('%d %b %H:%M') }}</td><td class="small">{{ run.job | replace('_', ' ') }}</td>
+    <td class="small"><span class="chip {{ 'good' if run.status == 'done' else 'warn' }}">{{ run.status | replace('_', ' ') }}</span></td>
+    <td class="small num">${{ '%.2f' | format(run.cost_usd or 0) }}</td><td class="small num">{{ run.claims_written }} facts</td></tr>{% endfor %}</tbody></table>
+  <h2 style="margin-top:16px">Budgets this month</h2>
+  <table class="compact"><tbody>{% for b in r.budgets %}{% if b.limit %}<tr><td class="small">{{ b.provider | capitalize }}</td>
+    <td class="small num">{{ ('$%.2f' | format(b.used)) if b.unit == 'usd' else '{:,.0f}'.format(b.used) }} of {{ ('$%.0f' | format(b.limit)) if b.unit == 'usd' else '{:,.0f}'.format(b.limit) }}</td></tr>{% endif %}{% endfor %}</tbody></table>
+</section>
+</div>
+{% endblock %}

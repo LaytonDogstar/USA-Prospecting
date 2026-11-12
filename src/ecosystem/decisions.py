@@ -176,8 +176,9 @@ def decide(store: Store, it: m.ReviewItem, action: str, note: str = "") -> str:
     return done
 
 
-def apply_safe(store: Store, kind: str, limit: int = 500) -> dict:
-    """Apply every safe suggestion on one tab of the inbox (a person's click; recorded per item)."""
+def apply_safe(store: Store, kind: str, limit: int = 500, note_prefix: str = "bulk") -> dict:
+    """Apply every safe suggestion on one tab of the inbox (a person's click, or the daily assistant once an admin
+    has switched it on). Each decision is recorded per item with its reason."""
     s = store.s
     items = list(s.scalars(select(m.ReviewItem).where(m.ReviewItem.kind == kind, m.ReviewItem.status == "open")
                            .order_by(m.ReviewItem.id).limit(limit)))
@@ -189,12 +190,13 @@ def apply_safe(store: Store, kind: str, limit: int = 500) -> dict:
             skipped += 1
             continue
         try:
-            decide(store, it, sug["action"], f"bulk: {sug['why']}")
+            decide(store, it, sug["action"], f"{note_prefix}: {sug['why']}")
             done += 1
         except (DecisionError, ValueError) as e:
             errors.append(f"#{it.id}: {e}")
     if kind != "research" and done:
         from .scoring import rescore
         rescore(store, audit=False)  # merges move facts between records: refresh the scores once at the end
-    store.audit("review.bulk", "review_item", None, None, {"kind": kind, "applied": done, "skipped": skipped})
+    if done:
+        store.audit("review.bulk", "review_item", None, None, {"kind": kind, "applied": done, "skipped": skipped})
     return {"applied": done, "left_for_you": skipped, "errors": errors}

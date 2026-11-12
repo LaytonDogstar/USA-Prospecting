@@ -9,6 +9,7 @@
 
 <div class="kpis">
   <a class="kpi {{ 'alert' if head.reviews }}" href="/review"><b>{{ head.reviews }}</b><span>items waiting for review</span></a>
+  <a class="kpi" href="/report"><b>Report</b><span>what ran and was decided today</span></a>
   <a class="kpi {{ 'alert' if head.unconfirmed }}" href="/lenders?our=any"><b>{{ head.unconfirmed }}</b><span>relationships to confirm</span></a>
   <div class="kpi"><b>{{ head.working }}</b><span>live, contracting or in talks</span></div>
   <div class="kpi"><b>{{ '{:,}'.format(head.orgs) }}</b><span>organisations on the map</span></div>

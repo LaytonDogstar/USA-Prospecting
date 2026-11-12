@@ -68,6 +68,9 @@
   {% elif ids %}<div class="pair">{{ side(summaries.get(ids[0])) }}</div>{% endif %}
 
   {% set sug = suggestions.get(it.id) %}
+  {% set rec = it.payload.get('assistant') if it.status == 'open' else none %}
+  {% if rec %}<p class="small"><b>Assistant recommends:</b> {{ rec.label }} <span class="chip {{ 'good' if rec.confidence == 'high' else 'warn' if rec.confidence == 'low' else '' }}">{{ rec.confidence }} confidence</span>
+    <span class="muted">{{ rec.why }}</span></p>{% endif %}
   {% if sug and it.status == 'open' %}<p class="small"><b>Suggested:</b> {{ sug.label }} <span class="muted">({{ sug.why }})</span>
     {% if sug.safe %}<span class="chip good">safe</span>{% else %}<span class="chip">check first</span>{% endif %}</p>{% endif %}
   {% if it.status != 'open' %}
@@ -75,6 +78,7 @@
   {% elif admin %}
   <form method="post" action="/review/{{ it.id }}/decide" class="row">{{ csrf_field(csrf) }}
     <input name="note" placeholder="Note (why)" size="30">
+    {% if rec and rec.action and (not sug or sug.action != rec.action) %}<button name="action" value="{{ rec.action }}" class="primary" title="{{ rec.why }}">Confirm: {{ rec.label }}</button>{% endif %}
     {% if sug %}<button name="action" value="{{ sug.action }}" class="primary" title="{{ sug.why }}">Apply suggestion</button>{% endif %}
     {% if it.kind in ('possible_match', 'dedup') and ids | length == 2 %}
       {% set a, b = summaries.get(ids[0]), summaries.get(ids[1]) %}

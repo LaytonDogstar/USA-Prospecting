@@ -317,3 +317,16 @@ def test_review_bulk_and_schedule_forms(web, session):
                                                     "action": "save", "csrf": csrf(web, "/admin/research")})
     session.expire_all()
     assert session.get(m.JobSchedule, "research").params == {"n": 200}
+
+
+def test_report_and_recommendation_on_card(web, session):
+    from ecosystem import models as m
+    login(web)
+    assert web.get("/report").status_code == 200
+    it = session.scalar(__import__("sqlalchemy").select(m.ReviewItem).where(m.ReviewItem.status == "open"))
+    it.payload = {**it.payload, "assistant": {"choice": "unsure", "action": None, "label": "Needs a person",
+                                              "confidence": "low", "why": "Thin evidence.", "key": "x"}}
+    session.commit()
+    page = web.get(f"/review?kind={it.kind}").text
+    assert "Assistant recommends" in page and "Thin evidence." in page
+    assert "Needs a person" in web.get("/report").text

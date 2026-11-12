@@ -28,6 +28,9 @@ DEFAULTS = {
     "ahrefs_fill_traffic": ("Fill website traffic (Ahrefs)", 24, {"limit": 100}, "AHREFS_API_KEY"),
     "ahrefs_serp_snapshot": ("Search results snapshot for tracked keywords (Ahrefs)", 168, {}, "AHREFS_API_KEY"),
     "upkeep": ("Upkeep: duplicate check, partner check, re-score (free)", 24, {}, None),
+    # last, so it runs after the jobs above when they are due together
+    "assistant": ("Assistant: apply safe suggestions, recommend on the rest (Claude), daily report", 24,
+                  {"limit": 80}, None),
 }
 LIMITS = {"n": (1, 200), "limit": (1, 500)}
 
@@ -69,7 +72,10 @@ def upkeep(store: Store) -> dict:
 
 
 def run_job(s, job: str, actor: str, kwargs: dict) -> None:
-    from . import enrich, research
+    from . import assistant, enrich, research
+    if job == "assistant":
+        assistant.run_assistant(Store(s, actor=assistant.ACTOR), **kwargs)
+        return
     fn = {"ahrefs_fill_traffic": enrich.fill_traffic, "ahrefs_serp_snapshot": enrich.serp_snapshot,
           "research": research.research_batch, "upkeep": upkeep}[job]
     fn(Store(s, actor=actor), **kwargs)

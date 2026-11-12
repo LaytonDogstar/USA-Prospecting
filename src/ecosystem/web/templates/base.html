@@ -21,6 +21,7 @@
     <a href="/leverage" class="{{ 'on' if path.startswith('/leverage') }}">Leverage</a>
     <a href="/people" class="{{ 'on' if path.startswith('/people') }}">People</a>
     <a href="/review" class="{{ 'on' if path.startswith('/review') }}">Review</a>
+    <a href="/report" class="{{ 'on' if path.startswith('/report') }}">Report</a>
     {% if user.role == 'admin' %}<a href="/admin/weights" class="{{ 'on' if path.startswith('/admin') }}">Admin</a>{% endif %}
   </nav>
   <div class="who"><span>{{ user.username }}{% if user.role != 'admin' %} (viewer){% endif %}</span>
