@@ -17,7 +17,7 @@
 {% if admin and status == 'open' and safe_on_tab %}
 <form method="post" action="/review/bulk" class="row panel" style="margin-bottom:14px" data-confirm="Apply the suggested decision to {{ safe_on_tab }} items on this tab?">{{ csrf_field(csrf) }}
   <input type="hidden" name="kind" value="{{ kind }}">
-  <span><b>{{ safe_on_tab }}</b> item{{ 's' if safe_on_tab != 1 }} on this tab have a safe suggestion (marked <span class="chip good">safe</span>). The rest need your judgement.</span>
+  <span><b>{{ safe_on_tab }}</b> {{ 'item on this tab has' if safe_on_tab == 1 else 'items on this tab have' }} a safe suggestion (marked <span class="chip good">safe</span>). The rest need your judgement.</span>
   <button class="primary">Apply {{ safe_on_tab }} safe suggestion{{ 's' if safe_on_tab != 1 }}</button>
 </form>{% endif %}
 
