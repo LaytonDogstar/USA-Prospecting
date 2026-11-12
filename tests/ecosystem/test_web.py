@@ -330,3 +330,17 @@ def test_report_and_recommendation_on_card(web, session):
     page = web.get(f"/review?kind={it.kind}").text
     assert "Assistant recommends" in page and "Thin evidence." in page
     assert "Needs a person" in web.get("/report").text
+
+
+def test_bulk_add_keywords(web, session):
+    from sqlalchemy import select
+    from ecosystem import models as m
+    login(web)
+    r = web.post("/admin/research/keywords", data={"action": "add", "csrf": csrf(web, "/admin/research"),
+                                                   "keyword": "Payday Loans Texas\n\n$1000 loan, cash advance apps\npayday loans texas"},
+                 follow_redirects=True)
+    assert "Added 3 keywords." in r.text
+    assert set(session.scalars(select(m.TrackedKeyword.keyword))) == {"payday loans texas", "$1000 loan", "cash advance apps"}
+    r = web.post("/admin/research/keywords", data={"action": "add", "csrf": csrf(web, "/admin/research"),
+                                                   "keyword": "cash advance apps\nsame day loans"}, follow_redirects=True)
+    assert "Added 1 keyword; 1 already tracked" in r.text

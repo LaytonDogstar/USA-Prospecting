@@ -368,11 +368,18 @@ def research_keywords(request: Request, action: str = Form(...), keyword: str = 
         n = seed_keywords(db, user.username)
         flash(request, f"Added {n} starter keywords." if n else "Keywords already exist; nothing added.")
     elif action == "add" and keyword.strip():
-        kw = keyword.strip().lower()[:120]
-        if not db.scalar(select(m.TrackedKeyword.id).where(m.TrackedKeyword.keyword == kw)):
+        # one per line (commas also split), so a list can be pasted in one go
+        wanted = list(dict.fromkeys(k.strip().lower()[:120] for k in re.split(r"[\n,]+", keyword) if k.strip()))[:200]
+        have = set(db.scalars(select(m.TrackedKeyword.keyword)))
+        new = [k for k in wanted if k not in have]
+        for kw in new:
             db.add(m.TrackedKeyword(keyword=kw, active=True))
-            store_for(db, user).audit("keywords.add", "tracked_keyword", None, None, {"keyword": kw})
-        flash(request, f"Tracking '{kw}'.")
+        if new:
+            store_for(db, user).audit("keywords.add", "tracked_keyword", None, None, {"keywords": new})
+        dup = len(wanted) - len(new)
+        flash(request, f"Added {len(new)} keyword{'s' if len(new) != 1 else ''}"
+                       f"{f'; {dup} already tracked' if dup else ''}. A weekly snapshot costs about "
+                       f"{300 * (len(have) + len(new)):,} Ahrefs units for all {len(have) + len(new)} keywords.")
     elif action in ("pause", "resume") and kid:
         k = db.get(m.TrackedKeyword, kid)
         if k:

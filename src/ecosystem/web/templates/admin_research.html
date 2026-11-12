@@ -96,8 +96,10 @@
     <td><form method="post" action="/admin/research/keywords" class="inline">{{ csrf_field(csrf) }}<input type="hidden" name="kid" value="{{ k.id }}">
       <button name="action" value="{{ 'pause' if k.active else 'resume' }}">{{ 'Pause' if k.active else 'Resume' }}</button></form></td></tr>{% endfor %}
   </tbody></table>
-  <form method="post" action="/admin/research/keywords" class="row">{{ csrf_field(csrf) }}
-    <input name="keyword" placeholder="e.g. payday loans texas" size="28"><button name="action" value="add">Add keyword</button></form>
+  <form method="post" action="/admin/research/keywords" class="stack">{{ csrf_field(csrf) }}
+    <label class="small">Add keywords: one per line, or paste a list
+      <textarea name="keyword" rows="4" placeholder="payday loans texas&#10;$1000 loan bad credit&#10;cash advance apps" style="width:100%"></textarea></label>
+    <div><button name="action" value="add">Add keywords</button> <span class="small muted">Already-tracked ones are skipped. About 300 Ahrefs units per keyword per snapshot.</span></div></form>
 </section>
 
 <section class="panel table-wrap">
