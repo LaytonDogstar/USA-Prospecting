@@ -75,6 +75,10 @@ src/ecosystem/
     static/      style.css (light/dark tokens), app.js (evidence drawer, confirm prompts), map.js (Cytoscape
                  map; text inserted with textContent only), vendor/ (Cytoscape.js 3.30.4, MIT, served locally
                  because the CSP only allows same-origin scripts)
+scripts/portal.py  client for the live portal used by the scheduled Claude review sessions (reads ECOSYSTEM_URL,
+                 ECOSYSTEM_USERNAME, ECOSYSTEM_PASSWORD): status, report, review, decide, run-now. Backed by the read-only
+                 JSON routes in web/routes/api.py (/api/status, /api/report, /api/review, /api/csrf); decisions go
+                 through the normal /review/{id}/decide form post. No commands for users, budgets, weights or imports
 migrations/      Alembic. 0001 = initial schema + entity_current view; 0002 = latest_score view; 0003 = provider_budget; 0004 = job_schedule
 tests/ecosystem/ pytest; conftest builds made-up workbooks. test_acceptance_real_data.py runs only
                  when the real files and data/reference/acceptance.json are present.

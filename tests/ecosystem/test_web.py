@@ -344,3 +344,25 @@ def test_bulk_add_keywords(web, session):
     r = web.post("/admin/research/keywords", data={"action": "add", "csrf": csrf(web, "/admin/research"),
                                                    "keyword": "cash advance apps\nsame day loans"}, follow_redirects=True)
     assert "Added 1 keyword; 1 already tracked" in r.text
+
+
+def test_api_for_review_sessions(web, session):
+    login(web)
+    st = web.get("/api/status").json()
+    assert "budgets" in st and "open_by_kind" in st
+    rv = web.get("/api/review", params={"limit": 5}).json()
+    assert rv["total"] >= 1 and "card" in rv["items"][0] and "actions" in rv["items"][0]
+    assert "by_assistant" in web.get("/api/report").json()
+    tok = web.get("/api/csrf").json()["csrf"]
+    from ecosystem import models as m
+    from sqlalchemy import select
+    session.add(m.JobSchedule(job="upkeep", enabled=False, every_hours=24, params={}, updated_by="t"))
+    session.commit()
+    r = web.post("/admin/research/schedule/upkeep/run", data={"csrf": tok}, follow_redirects=False)
+    assert r.status_code == 303
+    session.expire_all()
+    assert session.get(m.JobSchedule, "upkeep").enabled is False  # run now changes no settings
+
+
+def test_api_needs_login(web):
+    assert web.get("/api/status", follow_redirects=False).status_code == 303

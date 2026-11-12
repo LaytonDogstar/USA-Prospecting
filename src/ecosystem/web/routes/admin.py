@@ -312,6 +312,23 @@ def _run_schedule_now(job: str, actor: str) -> None:
         s.close()
 
 
+@router.post("/research/schedule/{job}/run")
+def research_schedule_run(job: str, request: Request, background: BackgroundTasks, db: Session = Depends(get_db),
+                          user=Depends(admin_user)):
+    """Run one schedule now without changing its settings."""
+    if job not in scheduler.DEFAULTS:
+        raise HTTPException(400, "Unknown job")
+    scheduler.ensure_defaults(db)
+    if db.scalar(select(m.JobRun.id).where(m.JobRun.job == job, m.JobRun.status == "running")):
+        flash(request, "That job is already running.")
+        return RedirectResponse("/admin/research#schedules", status_code=303)
+    store_for(db, user).audit("job.start", "job_run", None, None, {"job": job, "via": "run now"})
+    db.commit()
+    background.add_task(_run_schedule_now, job, user.username)
+    flash(request, f"Started: {scheduler.DEFAULTS[job][0]}.")
+    return RedirectResponse("/admin/research#schedules", status_code=303)
+
+
 @router.post("/research/schedule")
 async def research_schedule(request: Request, background: BackgroundTasks, db: Session = Depends(get_db),
                             user=Depends(admin_user)):
