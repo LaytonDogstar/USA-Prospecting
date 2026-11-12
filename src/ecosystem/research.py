@@ -170,6 +170,7 @@ def research_org(store: Store, org: m.Organisation, client, model: str = DEFAULT
              _record_tool()]
     messages = [{"role": "user", "content": _brief(store.s, org)}]
     seen_urls: set[str] = set()
+    tool_errors: list[str] = []
     cost, result, nudged = 0.0, None, False
     for _ in range(MAX_TURNS):
         resp = client.beta.messages.create(
@@ -178,7 +179,11 @@ def research_org(store: Store, org: m.Organisation, client, model: str = DEFAULT
         cost += _cost(model, resp.usage)
         for b in resp.content:
             if getattr(b, "type", "") in ("web_search_tool_result", "web_fetch_tool_result"):
-                _urls_in(_dump(b), seen_urls)
+                d = _dump(b)
+                _urls_in(d, seen_urls)
+                content = d.get("content")
+                if isinstance(content, dict) and content.get("error_code"):  # an error comes back as an object
+                    tool_errors.append(f"{b.type.replace('_tool_result', '')}: {content['error_code']}")
         call = next((b for b in resp.content if getattr(b, "type", "") == "tool_use" and b.name == "record_findings"), None)
         if call is not None:
             result = call.input if isinstance(call.input, dict) else json.loads(call.input)
@@ -195,6 +200,8 @@ def research_org(store: Store, org: m.Organisation, client, model: str = DEFAULT
         messages.append({"role": "user", "content": "Please call record_findings now with what you verified."})
         nudged = True
     budget.record(store.s, "anthropic", 0, cost, job_run_id)
+    if not seen_urls and tool_errors:  # every search failed: an error, not "nothing found" (no card; retried later)
+        raise RuntimeError(f"web search failed ({', '.join(sorted(set(tool_errors)))}); cost ${cost:.3f}")
     if result is None:
         return {"findings": [], "rejected": [], "summary": None, "cost": cost, "error": "no findings recorded"}
     allowed = {_norm_url(u) for u in seen_urls}
@@ -244,7 +251,9 @@ def pilot_targets(s, n: int) -> list[m.Organisation]:
                            ORDER BY retrieved_at DESC LIMIT 1) c ON true
         LEFT JOIN compliance_status cs ON cs.entity_id = o.id
         WHERE o.lifecycle IN ('active','candidate') AND cs.value IS DISTINCT FROM 'blocked'
-          AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.kind = 'research' AND o.id = ANY(ri.entity_ids))
+          AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.kind = 'research' AND o.id = ANY(ri.entity_ids)
+                          -- a rejected pass that found nothing is tried again
+                          AND NOT (ri.status = 'rejected' AND coalesce(ri.payload->'counts', '{}'::jsonb) = '{}'::jsonb))
         ORDER BY c.value DESC NULLS LAST, o.id LIMIT :n"""), {"n": n})]
     return [s.get(m.Organisation, i) for i in ids]
 

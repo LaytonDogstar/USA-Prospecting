@@ -267,3 +267,28 @@ def test_category_drives_the_role_and_screen_out(store, targets_file):
     assert s.scalar(select(m.OrgRole).where(m.OrgRole.organisation_id == q.id)) is None  # no role for an app
     screen_out(store, q, "cash-advance app")
     assert q.lifecycle == "screened_out"
+
+
+def test_failed_web_search_is_an_error_not_an_empty_card(store, targets_file):
+    import_targets(store, targets_file)
+    s = store.s
+    q = org_named(s, "Quasar Lending, Inc.")
+
+    class Broken:
+        def __init__(self):
+            self.beta = NS(messages=NS(create=self.create))
+
+        def create(self, **kw):
+            err = NS(type="web_search_tool_result", model_dump=lambda: {"type": "web_search_tool_result",
+                     "content": {"type": "web_search_tool_result_error", "error_code": "invalid_tool_input"}})
+            rec = NS(type="tool_use", name="record_findings", id="t1",
+                     input={"summary": "Could not verify.", "is_us_consumer_lender": False, "lender_category": "unclear",
+                            "findings": []})
+            return NS(content=[err, rec], stop_reason="tool_use",
+                      usage=NS(input_tokens=1000, output_tokens=50, cache_creation_input_tokens=0,
+                               cache_read_input_tokens=0, server_tool_use=None))
+    out = research_batch(store, org_ids=[q.id], client=Broken())
+    assert out["errors"] == 1 and out["organisations"] == 0
+    assert s.scalar(select(m.ReviewItem).where(m.ReviewItem.kind == "research")) is None
+    run = s.scalar(select(m.JobRun).where(m.JobRun.job == "research"))
+    assert "invalid_tool_input" in run.errors[0]["message"]

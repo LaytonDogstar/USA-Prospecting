@@ -102,10 +102,15 @@ def suggest(store: Store, it: m.ReviewItem, summ: dict) -> dict | None:
     if it.kind == "research":
         cat = it.payload.get("lender_category")
         facts = sum(it.payload.get("counts", {}).values())
-        if it.payload.get("is_us_consumer_lender") is False or cat in NON_LENDER_CATEGORIES:
+        if facts == 0:  # nothing verified (often a failed search): never screen out on that
+            return {"action": "reject", "label": "Reject: no evidence found",
+                    "why": "the research found no cited facts, so it says nothing either way; rejecting it lets the "
+                           "company be researched again", "safe": True}
+        if cat in NON_LENDER_CATEGORIES or (it.payload.get("is_us_consumer_lender") is False and cat != "unclear"):
             return {"action": "screen", "label": "Accept and screen out",
-                    "why": f"research says it isn't a US consumer lender ({(cat or 'not a lender').replace('_', ' ')})",
-                    "safe": True}
+                    "why": f"research says it isn't a US consumer lender ({(cat or 'not a lender').replace('_', ' ')}), "
+                           f"with {facts} cited fact{'s' if facts != 1 else ''}",
+                    "safe": facts >= 2 and not it.payload.get("rejected_uncited")}
         if cat in LENDER_CATEGORIES and facts >= 2 and not it.payload.get("rejected_uncited"):
             return {"action": "approve", "label": "Accept these facts",
                     "why": f"{cat.replace('_', ' ')} lender, {facts} cited facts, none dropped", "safe": True}
@@ -174,6 +179,27 @@ def decide(store: Store, it: m.ReviewItem, action: str, note: str = "") -> str:
     store.audit(f"review.{it.status}", "review_item", it.id, None, {"action": action, "note": note, "title": it.title})
     s.flush()
     return done
+
+
+def undo_screen(store: Store, it: m.ReviewItem, note: str) -> str:
+    """Put back an organisation that a research decision screened out, and reopen it for research.
+    The original decision stays in the audit log; this one is logged next to it."""
+    if it.kind != "research" or it.status == "open":
+        raise DecisionError("Only a decided research item can be undone")
+    org = store.org(it.entity_ids[0])
+    if org.lifecycle != "screened_out":
+        raise DecisionError("That organisation isn't screened out")
+    before = {"lifecycle": org.lifecycle, "status": it.status, "decided_by": it.decided_by, "note": it.note}
+    has_roles = store.s.scalar(select(m.OrgRole.id).where(m.OrgRole.organisation_id == org.id).limit(1))
+    org.lifecycle = "active" if has_roles else "candidate"
+    for c in store.s.scalars(select(m.Claim).where(m.Claim.entity_id == org.id, m.Claim.attribute == "screen_out_reason",
+                                                 m.Claim.status == "accepted")):
+        c.status = "rejected"
+    it.status, it.decided_by, it.decided_at = "rejected", store.actor, datetime.now(timezone.utc)
+    it.note = f"screen-out undone: {note}".strip()[:500]
+    store.audit("organisation.unscreen", "organisation", org.id, before, {"note": note, "review_item": it.id})
+    store.s.flush()
+    return f"Restored {org.display_name}; it will be researched again."
 
 
 def apply_safe(store: Store, kind: str, limit: int = 500, note_prefix: str = "bulk") -> dict:

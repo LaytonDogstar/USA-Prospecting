@@ -8,6 +8,7 @@ users, budgets, weights, imports or resets.
   python scripts/portal.py report --hours 24      # the daily report (JSON)
   python scripts/portal.py review --kind possible_match --limit 50
   python scripts/portal.py decide 123 "link:45:67" --note "CFPB entity owns the brand (its site names it)"
+  python scripts/portal.py undo-screen 141 --note "screened out on a failed search, 0 facts"
   python scripts/portal.py run-now assistant
 """
 import argparse
@@ -56,6 +57,7 @@ def main():
     p.add_argument("--offset", type=int, default=0)
     p = sub.add_parser("decide"); p.add_argument("item", type=int); p.add_argument("action")
     p.add_argument("--note", required=True)
+    p = sub.add_parser("undo-screen"); p.add_argument("item", type=int); p.add_argument("--note", required=True)
     p = sub.add_parser("run-now"); p.add_argument("job")
     a = ap.parse_args()
     pt = Portal()
@@ -70,6 +72,9 @@ def main():
             sys.exit("action must be merge:<id>, link:<parent>:<child>, approve, reject or screen")
         r = pt.post(f"/review/{a.item}/decide", {"action": a.action, "note": a.note})
         out = {"item": a.item, "action": a.action, "status": r.status_code}
+    elif a.cmd == "undo-screen":
+        r = pt.post(f"/review/{a.item}/undo-screen", {"note": a.note})
+        out = {"item": a.item, "undone": r.status_code == 303}
     else:
         r = pt.post(f"/admin/research/schedule/{a.job}/run", {})
         out = {"job": a.job, "started": r.status_code == 303}

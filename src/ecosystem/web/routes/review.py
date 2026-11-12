@@ -7,7 +7,7 @@ from sqlalchemy import case, func, select, text
 from sqlalchemy.orm import Session
 
 from ... import models as m
-from ...decisions import DecisionError, apply_safe, decide as decide_item, suggest, summaries
+from ...decisions import DecisionError, apply_safe, decide as decide_item, suggest, summaries, undo_screen
 from ..deps import admin_user, current_user, flash, get_db, render, store_for
 from .home import REVIEW_LABELS
 
@@ -77,3 +77,17 @@ def bulk(request: Request, kind: str = Form(...), db: Session = Depends(get_db),
         msg += f" {len(out['errors'])} couldn't be applied: {'; '.join(out['errors'][:3])}"
     flash(request, msg)
     return RedirectResponse(f"/review?kind={kind}", status_code=303)
+
+
+@router.post("/review/{item_id}/undo-screen")
+def undo_screen_route(item_id: int, request: Request, note: str = Form(""), db: Session = Depends(get_db),
+                      user=Depends(admin_user)):
+    it = db.get(m.ReviewItem, item_id)
+    if it is None:
+        raise HTTPException(404, "No review item with that id")
+    try:
+        done = undo_screen(store_for(db, user), it, note)
+    except DecisionError as e:
+        raise HTTPException(400, str(e))
+    flash(request, f"#{it.id}: {done}")
+    return RedirectResponse("/review?kind=research&status=done", status_code=303)

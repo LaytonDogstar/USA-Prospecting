@@ -75,3 +75,21 @@ def test_decide_rejects_bad_targets(store):
     decide(store, it, "reject", "different")
     with pytest.raises(DecisionError):
         decide(store, it, "reject")
+
+
+def test_failed_research_is_never_screened_out_and_can_be_undone(store):
+    from ecosystem.decisions import undo_screen
+    o = store.new_org("Granite Loans")
+    store.s.flush()
+    empty = store.review("research", f"research:{o.id}:1", "Research found 0 facts: Granite Loans", [o.id],
+                         {"lender_category": "unclear", "is_us_consumer_lender": False, "counts": {}})
+    sug = _sug(store, empty)
+    assert sug["action"] == "reject" and sug["safe"]  # rejected so it's researched again, never screened
+    thin = store.review("research", f"research:{o.id}:2", "Research found 1 fact", [o.id],
+                        {"lender_category": "fintech_app", "is_us_consumer_lender": False, "counts": {"description": 1}})
+    assert _sug(store, thin)["action"] == "screen" and not _sug(store, thin)["safe"]  # one fact: a person checks
+    # a wrong screen-out (as happened before this rule) can be undone
+    decide(store, thin, "screen", "test")
+    assert store.org(o.id).lifecycle == "screened_out"
+    undo_screen(store, thin, "was a lender")
+    assert store.org(o.id).lifecycle == "candidate" and thin.status == "rejected"
