@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_field %}
+{% block title %}Notifications{% endblock %}
+{% macro note(n, unread) %}
+<div class="card note lv-{{ n.level }}">
+  <div class="row" style="justify-content: space-between">
+    <div><span class="chip {{ 'warn' if n.level in ('problem', 'warning') else 'good' if n.level == 'action' else '' }}">{{ {'problem': 'problem', 'action': 'needs you', 'warning': 'heads up', 'info': 'for info'}[n.level] }}</span>
+      <b>{{ n.title }}</b></div>
+    <span class="meta">{{ n.created_at.strftime('%d %b %H:%M') }} UTC · {{ n.source }}</span>
+  </div>
+  {% if n.body %}<div class="body small">{{ n.body | note }}</div>{% endif %}
+  <div class="row">
+    {% if n.link %}<form method="post" action="/notifications/read" class="inline">{{ csrf_field(csrf) }}<input type="hidden" name="nid" value="{{ n.id }}"><input type="hidden" name="go" value="{{ n.link }}"><button class="primary">Go there</button></form>{% endif %}
+    {% if unread %}<form method="post" action="/notifications/read" class="inline">{{ csrf_field(csrf) }}<input type="hidden" name="nid" value="{{ n.id }}"><button>Done</button></form>{% endif %}
+  </div>
+</div>
+{% endmacro %}
+{% block content %}
+<div class="page-head"><div>
+  <h1>Notifications</h1>
+  <p class="muted">Where to look and what to do: job problems, budgets, review items waiting, and the daily review's report. Most urgent first.</p>
+</div>
+{% if unread %}<form method="post" action="/notifications/read">{{ csrf_field(csrf) }}<button>Mark all done</button></form>{% endif %}
+</div>
+{% for n in unread %}{{ note(n, true) }}{% else %}<p class="muted">Nothing new. You're up to date.</p>{% endfor %}
+{% if earlier %}<h2 style="margin-top:24px">Earlier</h2>{% for n in earlier %}{{ note(n, false) }}{% endfor %}{% endif %}
+{% endblock %}

@@ -164,3 +164,15 @@ details > summary { cursor: pointer; color: var(--muted); margin: 6px 0; }
 .tile:hover { outline: 2px solid var(--accent); text-decoration: none; }
 @media (max-width: 640px) { .tile { font-size: 9px; } .tile b { font-size: 10px; } .tile i { display: none; } }
 .tiles.low-coverage .tile { filter: grayscale(0.85); opacity: 0.8; }
+
+/* notifications */
+.bell { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); text-decoration: none; }
+.bell.has { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
+.bell b { margin-left: 2px; }
+.note { border-left: 4px solid var(--line); }
+.note.lv-problem { border-left-color: #c0392b; }
+.note.lv-action { border-left-color: var(--accent, #2563eb); }
+.note.lv-warning { border-left-color: var(--warn); }
+.note .body p { margin: 4px 0; }
+.note .body ul { margin: 4px 0 4px 18px; padding: 0; }
+.note .meta { font-size: 12px; color: var(--muted); }

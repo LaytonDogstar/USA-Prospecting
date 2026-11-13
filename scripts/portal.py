@@ -9,6 +9,7 @@ users, budgets, weights, imports or resets.
   python scripts/portal.py review --kind possible_match --limit 50
   python scripts/portal.py decide 123 "link:45:67" --note "CFPB entity owns the brand (its site names it)"
   python scripts/portal.py undo-screen 141 --note "screened out on a failed search, 0 facts"
+  python scripts/portal.py notify --level action --title "3 partner matches need you" --body "..." --link "/review?kind=possible_match" --key "needs:2026-11-13"
   python scripts/portal.py run-now assistant
 """
 import argparse
@@ -58,6 +59,10 @@ def main():
     p = sub.add_parser("decide"); p.add_argument("item", type=int); p.add_argument("action")
     p.add_argument("--note", required=True)
     p = sub.add_parser("undo-screen"); p.add_argument("item", type=int); p.add_argument("--note", required=True)
+    p = sub.add_parser("notify"); p.add_argument("--level", required=True, choices=["problem", "action", "warning", "info"])
+    p.add_argument("--title", required=True); p.add_argument("--body", default=""); p.add_argument("--link", default="")
+    p.add_argument("--key", default="", help="same key again updates the notice instead of adding another")
+    p.add_argument("--category", default="daily_review", choices=["daily_review", "review", "job", "budget"])
     p = sub.add_parser("run-now"); p.add_argument("job")
     a = ap.parse_args()
     pt = Portal()
@@ -72,6 +77,10 @@ def main():
             sys.exit("action must be merge:<id>, link:<parent>:<child>, approve, reject or screen")
         r = pt.post(f"/review/{a.item}/decide", {"action": a.action, "note": a.note})
         out = {"item": a.item, "action": a.action, "status": r.status_code}
+    elif a.cmd == "notify":
+        r = pt.post("/api/notifications", {"level": a.level, "title": a.title, "body": a.body, "link": a.link,
+                                           "key": a.key, "category": a.category})
+        out = r.json()
     elif a.cmd == "undo-screen":
         r = pt.post(f"/review/{a.item}/undo-screen", {"note": a.note})
         out = {"item": a.item, "undone": r.status_code == 303}

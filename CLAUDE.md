@@ -61,6 +61,10 @@ src/ecosystem/
                  "assistant", writes a Claude recommendation onto every other open card (payload["assistant"]; never
                  decides those), report() for /report. Card text is data inside <card>; answers are checked against
                  the card's allowed choices. ASSISTANT_MODEL (default RESEARCH_MODEL)
+  notify.py      notifications (header bell, Home "Needs you", /notifications): job failed / budget stopped /
+                 skipped / errors (after each scheduled job), budget forecast and review summary (after the assistant),
+                 and the daily Claude review's report (POST /api/notifications, portal.py notify). Idempotent by
+                 dedupe_key; read state per user; links are app paths only
   cli.py         python -m ecosystem <command>
   web/           FastAPI app (server-rendered Jinja, no front-end build)
     app.py       create_app(): sessions, security headers, routers
@@ -79,7 +83,7 @@ scripts/portal.py  client for the live portal used by the scheduled Claude revie
                  ECOSYSTEM_USERNAME, ECOSYSTEM_PASSWORD): status, report, review, decide, run-now. Backed by the read-only
                  JSON routes in web/routes/api.py (/api/status, /api/report, /api/review, /api/csrf); decisions go
                  through the normal /review/{id}/decide form post. No commands for users, budgets, weights or imports
-migrations/      Alembic. 0001 = initial schema + entity_current view; 0002 = latest_score view; 0003 = provider_budget; 0004 = job_schedule
+migrations/      Alembic. 0001 = initial schema + entity_current view; 0002 = latest_score view; 0003 = provider_budget; 0004 = job_schedule; 0005 = notification
 tests/ecosystem/ pytest; conftest builds made-up workbooks. test_acceptance_real_data.py runs only
                  when the real files and data/reference/acceptance.json are present.
 ```
@@ -126,11 +130,15 @@ A throwaway local Postgres: `initdb -D /var/tmp/pgdev/data -U postgres -A trust`
 
 ## Railway
 
-One `web` service (see `railway.json`): on start it runs migrations, `bootstrap-admin` (creates the first admin from `ADMIN_USERNAME` / `ADMIN_PASSWORD` only when there are no users), then uvicorn. Health check `/healthz`.
+One `web` service, defined in `.railway/railway.py` (Railway infrastructure as code, Python SDK in
+`.railway/requirements.txt`; variables are unmanaged, so they stay in the Railway dashboard): on start it runs
+migrations, `bootstrap-admin` (creates the first admin from `ADMIN_USERNAME` / `ADMIN_PASSWORD` only when there are no
+users), then uvicorn. Health check `/healthz`. The file also declares the `/data` volume: never drop it from the file,
+or a plan will detach the volume. Change it with `railway config plan` (review it) then `railway config apply`.
 
 Variables: `ANTHROPIC_API_KEY`, `AHREFS_API_KEY` (set by the owner in Railway; never in chat or git), optional `RESEARCH_MODEL` (default claude-sonnet-5-5), `DATABASE_URL` (from the Railway Postgres), `SECRET_KEY` (long random), `ECOSYSTEM_ENV=production` (secure cookies, HSTS, refuses to start without `SECRET_KEY`), `ECOSYSTEM_DATA_DIR=/data` with a **Railway volume mounted at /data** so uploaded spreadsheets and reference CSVs survive deploys. Turn on Postgres backups. Upload the files under Admin → Imports. Uploading runs the import, the sweeps and a re-score. Uploads are recognised by their contents (`importers.detect_kind`), not their names, and stored under the names the importer expects. Order matters (targets → traffic → owner groups → seeds): if a file arrives after ones that should come later and nobody has made decisions or edits yet, the upload re-imports everything in order automatically; otherwise it warns. "Reset and re-import" on the same page does it by hand: which clears imported data (keeping users, weights and the audit log) and re-imports the files on the volume in the right order.
 
-Railway project "Prsopecting Tool": service `USA-Prospecting` (deploys this repo on push), `Postgres` (private only, no public address), volume at /data. Live URL https://usa-prospecting-production.up.railway.app. `railway.json` (Config as Code) is deprecated by Railway and stops working on 2026-12-01: migrate with `railway config migrate --lang py --variables unmanaged` then `railway config migrate cutover` (a live change: do it with the owner's go-ahead, ideally after merging to `main`, since the generated file pins the branch).
+Railway project "Prsopecting Tool": service `USA-Prospecting` (deploys this repo on push), `Postgres` (private only, no public address), volume at /data. Live URL https://usa-prospecting-production.up.railway.app. The service deploys branch `claude/new-session-hw682s` (pinned in `.railway/railway.py`; change it there when the work merges to `main`). Migrated from the deprecated `railway.json` on 2026-11-13.
 
 Schema changes: edit `models.py`, then `alembic revision --autogenerate -m "..."`, review the file, then `alembic upgrade head`. `alembic check` must report no pending changes.
 

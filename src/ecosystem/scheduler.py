@@ -129,6 +129,15 @@ def run_due(session_factory, at: datetime | None = None) -> list[tuple[str, str]
                 s.commit()  # each job's results are kept even if a later one fails
                 done.append((job, status))
                 run = s.get(m.JobRun, sched.last_run_id) if sched.last_run_id else None
+                try:
+                    from . import notify
+                    notify.after_job(s, run, job, status)
+                    if job == "assistant":  # last job of the day: budgets and what is waiting
+                        notify.daily(s)
+                    s.commit()
+                except Exception:
+                    log.exception("notifications after %s failed", job)
+                    s.rollback()
                 result = (run.args or {}).get("result") if run else None
                 log.info("scheduled %s: %s%s", job, status,
                          f" | cost ${float(run.cost_usd or 0):.2f}, {run.claims_written} facts, "

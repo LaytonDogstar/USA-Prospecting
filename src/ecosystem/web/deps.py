@@ -1,6 +1,9 @@
 """Request dependencies: database session, current user, admin check, CSRF."""
 import hmac
+import re
 import secrets
+
+from markupsafe import Markup
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -41,6 +44,8 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> m.AppUser:
     if user is None or not user.is_active:
         request.session.clear()
         raise NotAuthenticated()
+    from ..notify import unread_count
+    request.state.unread = unread_count(db, user.username)  # the header bell
     return user
 
 
@@ -118,5 +123,31 @@ def fmt_value(v) -> str:
 
 
 templates.env.filters["num"] = fmt_num
+
+
+def note_text(text: str | None) -> Markup:
+    """Notification text: escaped, then **bold**, "- " lines as a list, and links to pages inside the app only."""
+    import html as _html
+    out, in_list = [], False
+    for line in (text or "").splitlines():
+        t = _html.escape(line)
+        t = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", t)
+        t = re.sub(r"(https://usa-prospecting-production\.up\.railway\.app)?(/(?:review|admin|org|report|lenders|supply|map|leverage|notifications)[^\s<,)]*)",
+                   lambda mm: f'<a href="{mm.group(2)}">{mm.group(2) if not mm.group(1) else "open"}</a>', t)
+        if line.lstrip().startswith(("- ", "• ")):
+            if not in_list:
+                out.append("<ul>"); in_list = True
+            item = re.sub(r"^\s*(-|•) ", "", t)
+            out.append(f"<li>{item}</li>")
+        else:
+            if in_list:
+                out.append("</ul>"); in_list = False
+            out.append(f"<p>{t}</p>" if t.strip() else "")
+    if in_list:
+        out.append("</ul>")
+    return Markup("".join(out))
+
+
+templates.env.filters["note"] = note_text
 templates.env.filters["val"] = fmt_value
 templates.env.globals["qs"] = qs

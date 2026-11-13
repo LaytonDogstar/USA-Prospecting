@@ -353,6 +353,22 @@ class Score(Base):
     __table_args__ = (Index("ix_score_entity_type_time", "entity_id", "score_type", "computed_at"),)
 
 
+class Notification(Base):
+    """Something a person should look at: a failed or budget-stopped job, a budget about to run out, review items
+    waiting, or the daily Claude review's report. Shown in the header bell, on Home and at /notifications."""
+    __tablename__ = "notification"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
+    level: Mapped[str] = mapped_column(String(10), default="info")   # action | warning | problem | info
+    category: Mapped[str] = mapped_column(String(20))                 # review | job | budget | daily_review
+    title: Mapped[str] = mapped_column(Text)
+    body: Mapped[str | None] = mapped_column(Text)
+    link: Mapped[str | None] = mapped_column(Text)                    # a path inside the app
+    source: Mapped[str] = mapped_column(Text, default="system")
+    dedupe_key: Mapped[str | None] = mapped_column(Text, unique=True)
+    read_by: Mapped[list] = mapped_column(ARRAY(Text), default=list)
+
+
 # ---------------------------------------------------------------- review, audit, users
 class ReviewItem(Base):
     __tablename__ = "review_item"

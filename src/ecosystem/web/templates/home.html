@@ -7,6 +7,12 @@
     <p class="muted">Best buyers and traffic sources we don't work with yet, what changed, and what needs a decision.</p></div>
 </div>
 
+{% if needs %}<section class="panel" style="margin-bottom:16px">
+  <div class="row" style="justify-content: space-between"><h2>Needs you</h2><a href="/notifications">All notifications →</a></div>
+  <ul class="small">{% for n in needs %}<li><span class="chip {{ 'warn' if n.level in ('problem', 'warning') else 'good' }}">{{ {'problem': 'problem', 'action': 'needs you', 'warning': 'heads up'}[n.level] }}</span>
+    {% if n.link %}<a href="{{ n.link }}">{{ n.title }}</a>{% else %}{{ n.title }}{% endif %}</li>{% endfor %}</ul>
+</section>{% endif %}
+
 <div class="kpis">
   <a class="kpi {{ 'alert' if head.reviews }}" href="/review"><b>{{ head.reviews }}</b><span>items waiting for review</span></a>
   <a class="kpi" href="/report"><b>Report</b><span>what ran and was decided today</span></a>

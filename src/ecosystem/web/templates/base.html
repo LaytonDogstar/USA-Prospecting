@@ -24,7 +24,9 @@
     <a href="/report" class="{{ 'on' if path.startswith('/report') }}">Report</a>
     {% if user.role == 'admin' %}<a href="/admin/weights" class="{{ 'on' if path.startswith('/admin') }}">Admin</a>{% endif %}
   </nav>
-  <div class="who"><span>{{ user.username }}{% if user.role != 'admin' %} (viewer){% endif %}</span>
+  <div class="who">{% set unread_n = request.state.unread if request.state.unread is defined else 0 %}
+    <a href="/notifications" class="bell {{ 'has' if unread_n }}" title="Notifications" aria-label="Notifications: {{ unread_n }} unread">Notifications{% if unread_n %} <b>{{ unread_n }}</b>{% endif %}</a>
+    <span>{{ user.username }}{% if user.role != 'admin' %} (viewer){% endif %}</span>
     <form method="post" action="/logout" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Sign out</button></form>
   </div>
 </div></header>

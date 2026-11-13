@@ -366,3 +366,31 @@ def test_api_for_review_sessions(web, session):
 
 def test_api_needs_login(web):
     assert web.get("/api/status", follow_redirects=False).status_code == 303
+
+
+def test_notifications_bell_page_and_api(web, session):
+    from ecosystem import notify
+    notify.add(session, "budget", "warning", "Anthropic budget runs out around 20 Nov", "Used **$40** of $50.\n- line one",
+               "/admin/research", dedupe_key="budget:test")
+    session.commit()
+    login(web)
+    home = web.get("/").text
+    assert "Needs you" in home and "Notifications <b>1</b>" in home
+    page = web.get("/notifications").text
+    assert "<b>$40</b>" in page and "<li>line one</li>" in page
+    r = web.post("/notifications/read", data={"csrf": csrf(web, "/notifications")}, follow_redirects=False)
+    assert r.status_code == 303 and "Notifications <b>" not in web.get("/").text
+    tok = web.get("/api/csrf").json()["csrf"]
+    r = web.post("/api/notifications", data={"csrf": tok, "level": "action", "title": "Daily review: 2 items need you",
+                                             "body": "See /review?kind=possible_match#item-6", "key": "needs:1"})
+    assert r.status_code == 200
+    assert 'href="/review?kind=possible_match#item-6"' in web.get("/notifications").text
+    bad = web.post("/api/notifications", data={"csrf": tok, "level": "action", "title": "x", "link": "https://evil.example"})
+    assert bad.status_code == 400
+
+
+def test_viewer_can_mark_read_but_not_post(web, session):
+    login(web, "reader", "viewer-password-1")
+    assert web.post("/notifications/read", data={"csrf": csrf(web, "/notifications")}, follow_redirects=False).status_code == 303
+    tok = web.get("/api/csrf").json()["csrf"]
+    assert web.post("/api/notifications", data={"csrf": tok, "level": "info", "title": "x"}).status_code in (403,)

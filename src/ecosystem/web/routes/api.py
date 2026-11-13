@@ -1,13 +1,13 @@
 """Read-only JSON for the scheduled Claude review sessions (scripts/portal.py). Same login as the pages; decisions
 still go through the normal audited, CSRF-checked form posts (/review/{id}/decide)."""
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ... import budget, models as m
+from ... import budget, models as m, notify
 from ...assistant import allowed_choices, card_text, report, to_action
 from ...decisions import suggest, summaries
-from ..deps import csrf_token, current_user, get_db, store_for
+from ..deps import admin_user, csrf_token, current_user, get_db, store_for
 
 router = APIRouter(prefix="/api")
 
@@ -66,3 +66,17 @@ def review_json(kind: str = "", limit: int = 50, offset: int = 0, db: Session = 
             "actions": {c: to_action(it, c) for c in sorted(allowed_choices(it)) if to_action(it, c)},
         })
     return {"total": total, "offset": offset, "items": out}
+
+
+@router.post("/notifications")
+def post_notification(level: str = Form(...), category: str = Form("daily_review"), title: str = Form(...),
+                      body: str = Form(""), link: str = Form(""), key: str = Form(""), db: Session = Depends(get_db),
+                      user=Depends(admin_user)):
+    """Used by the daily Claude review to put its report and the items that need the owner in the app."""
+    try:
+        n = notify.add(db, category, level, title, body or None, link or None, source=user.username,
+                       dedupe_key=f"{user.username}:{key}" if key else None)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    store_for(db, user).audit("notification.add", "notification", n.id, None, {"title": n.title, "level": n.level})
+    return {"id": n.id}

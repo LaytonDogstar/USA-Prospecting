@@ -24,6 +24,8 @@ def home(request: Request, db: Session = Depends(get_db), user=Depends(current_u
     counts = review_counts(db)
     buyers, held_b = top_unworked(db, "lenders")
     supply, held_s = top_unworked(db, "supply")
-    return render(request, "home.html", user, buyers=buyers, supply=supply, held_b=held_b, held_s=held_s,
+    from ... import notify
+    needs = [n for n in notify.unread(db, user.username, limit=20) if n.level in ("problem", "action", "warning")][:5]
+    return render(request, "home.html", user, needs=needs, buyers=buyers, supply=supply, held_b=held_b, held_s=held_s,
                   reviews=[(k, REVIEW_LABELS.get(k, k), counts[k]) for k in REVIEW_LABELS if counts.get(k)],
                   activity=recent_activity(db), head=headline_counts(db))
