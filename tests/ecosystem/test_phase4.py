@@ -292,3 +292,48 @@ def test_failed_web_search_is_an_error_not_an_empty_card(store, targets_file):
     assert s.scalar(select(m.ReviewItem).where(m.ReviewItem.kind == "research")) is None
     run = s.scalar(select(m.JobRun).where(m.JobRun.job == "research"))
     assert "invalid_tool_input" in run.errors[0]["message"]
+
+
+def test_retry_with_basic_web_tools_and_skip_repeat_failures(store, targets_file):
+    from ecosystem.research import pilot_targets
+    import_targets(store, targets_file)
+    s = store.s
+    q = org_named(s, "Quasar Lending, Inc.")
+
+    class DynamicBroken:
+        """The dynamic-filtering tools fail with invalid_tool_input; the basic ones work."""
+        def __init__(self):
+            self.beta, self.types = NS(messages=NS(create=self.create)), []
+
+        def create(self, **kw):
+            t = kw["tools"][0]["type"]
+            self.types.append(t)
+            usage = NS(input_tokens=1000, output_tokens=50, cache_creation_input_tokens=0, cache_read_input_tokens=0,
+                       server_tool_use=None)
+            if t == "web_search_20260209":
+                err = NS(type="web_search_tool_result", model_dump=lambda: {"type": "web_search_tool_result",
+                         "content": {"type": "web_search_tool_result_error", "error_code": "invalid_tool_input"}})
+                rec = NS(type="tool_use", name="record_findings", id="t1", input={
+                    "summary": "x", "is_us_consumer_lender": False, "lender_category": "unclear", "findings": []})
+                return NS(content=[err, rec], stop_reason="tool_use", usage=usage)
+            ok = NS(type="web_search_tool_result", model_dump=lambda: {"type": "web_search_tool_result", "content": [
+                {"type": "web_search_result", "url": "https://www.quasar.example/about"}]})
+            rec = NS(type="tool_use", name="record_findings", id="t2", input={
+                "summary": "A lender.", "is_us_consumer_lender": True, "lender_category": "state_licensed",
+                "findings": [{"attribute": "description", "value": "Instalment lender",
+                              "source_url": "https://www.quasar.example/about", "quote": "loans", "confidence": "high"}]})
+            return NS(content=[ok, rec], stop_reason="tool_use", usage=usage)
+
+    c = DynamicBroken()
+    out = research_batch(store, org_ids=[q.id], client=c)
+    assert c.types == ["web_search_20260209", "web_search_20250305"]
+    assert out["organisations"] == 1 and out["errors"] == 0 and out["retried_basic_tools"] == 1
+
+    # two failed days in a fortnight: the company is left out of the daily batch
+    other = next(o for o in pilot_targets(s, 50))
+    for _ in range(2):
+        s.add(m.JobRun(job="research", status="done", args={}, claims_written=0, cost_usd=0,
+                       started_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc),
+                       errors=[{"message": f"{other.display_name}: RuntimeError: web search failed (x)", "org_id": other.id}]))
+    s.flush()
+    assert other.id not in {o.id for o in pilot_targets(s, 50)}

@@ -162,11 +162,23 @@ def _dump(block) -> dict:
     return block.model_dump() if hasattr(block, "model_dump") else dict(block)
 
 
-def research_org(store: Store, org: m.Organisation, client, model: str = DEFAULT_MODEL, job_run_id: int | None = None) -> dict:
+class SearchFailed(RuntimeError):
+    """Every web search / fetch in the pass came back as a tool error."""
+
+
+# the dynamic-filtering web tools, and the basic ones tried once when those fail with invalid_tool_input
+WEB_TOOLS = {"dynamic": ("web_search_20260209", "web_fetch_20260209"),
+             "basic": ("web_search_20250305", "web_fetch_20250910")}
+MAX_FAILED_DAYS = 2  # a company whose searches failed this many times in 14 days is left alone (listed in the run log)
+
+
+def research_org(store: Store, org: m.Organisation, client, model: str = DEFAULT_MODEL, job_run_id: int | None = None,
+                 tools_variant: str = "dynamic") -> dict:
     """One research pass. Returns {'findings', 'rejected', 'summary', 'cost', ...}; writes nothing itself."""
     budget.check(store.s, "anthropic", ESTIMATE_PER_ORG_USD)
-    tools = [{"type": "web_search_20260209", "name": "web_search", "max_uses": MAX_SEARCHES},
-             {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": MAX_FETCHES},
+    search_type, fetch_type = WEB_TOOLS[tools_variant]
+    tools = [{"type": search_type, "name": "web_search", "max_uses": MAX_SEARCHES},
+             {"type": fetch_type, "name": "web_fetch", "max_uses": MAX_FETCHES},
              _record_tool()]
     messages = [{"role": "user", "content": _brief(store.s, org)}]
     seen_urls: set[str] = set()
@@ -201,7 +213,7 @@ def research_org(store: Store, org: m.Organisation, client, model: str = DEFAULT
         nudged = True
     budget.record(store.s, "anthropic", 0, cost, job_run_id)
     if not seen_urls and tool_errors:  # every search failed: an error, not "nothing found" (no card; retried later)
-        raise RuntimeError(f"web search failed ({', '.join(sorted(set(tool_errors)))}); cost ${cost:.3f}")
+        raise SearchFailed(f"web search failed ({', '.join(sorted(set(tool_errors)))}); cost ${cost:.3f}")
     if result is None:
         return {"findings": [], "rejected": [], "summary": None, "cost": cost, "error": "no findings recorded"}
     allowed = {_norm_url(u) for u in seen_urls}
@@ -251,10 +263,13 @@ def pilot_targets(s, n: int) -> list[m.Organisation]:
                            ORDER BY retrieved_at DESC LIMIT 1) c ON true
         LEFT JOIN compliance_status cs ON cs.entity_id = o.id
         WHERE o.lifecycle IN ('active','candidate') AND cs.value IS DISTINCT FROM 'blocked'
+          AND (SELECT count(*) FROM job_run jr, jsonb_array_elements(jr.errors) e
+               WHERE jr.job = 'research' AND jr.started_at > now() - interval '14 days'
+                 AND (e->>'org_id')::bigint = o.id AND e->>'message' LIKE '%web search failed%') < :max_failed
           AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.kind = 'research' AND o.id = ANY(ri.entity_ids)
                           -- a rejected pass that found nothing is tried again
                           AND NOT (ri.status = 'rejected' AND coalesce(ri.payload->'counts', '{}'::jsonb) = '{}'::jsonb))
-        ORDER BY c.value DESC NULLS LAST, o.id LIMIT :n"""), {"n": n})]
+        ORDER BY c.value DESC NULLS LAST, o.id LIMIT :n"""), {"n": n, "max_failed": MAX_FAILED_DAYS})]
     return [s.get(m.Organisation, i) for i in ids]
 
 
@@ -269,7 +284,14 @@ def research_batch(store: Store, n: int = 20, client=None, model: str = DEFAULT_
         last_error, repeats = None, 0
         for org in orgs:
             try:
-                res = research_org(store, org, client, model, ctx.run.id)
+                try:
+                    res = research_org(store, org, client, model, ctx.run.id)
+                except SearchFailed as first:
+                    if "invalid_tool_input" not in str(first):
+                        raise
+                    log.warning("research for org %s: %s; retrying with the basic web tools", org.id, first)
+                    res = research_org(store, org, client, model, ctx.run.id, tools_variant="basic")
+                    res["retried_basic_tools"] = True
             except budget.BudgetExceeded:
                 raise
             except Exception as e:  # one company failing doesn't stop the batch...
@@ -287,6 +309,7 @@ def research_batch(store: Store, n: int = 20, client=None, model: str = DEFAULT_
             last_error, repeats = None, 0
             write_findings(store, org, res, model, ctx.run.id)
             out["organisations"] += 1
+            out["retried_basic_tools"] = out.get("retried_basic_tools", 0) + bool(res.get("retried_basic_tools"))
             out["facts_proposed"] += len(res["findings"])
             out["rejected_uncited"] += len(res["rejected"])
             out["cost_usd"] += res["cost"]
