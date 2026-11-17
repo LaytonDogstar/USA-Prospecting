@@ -19,7 +19,16 @@ SELECT o.id, o.display_name, o.tier, o.lifecycle, o.kind, p.id AS parent_id, p.d
        sc.value AS score, lbs.value AS lbs, ref.value AS sheet_score,
        (SELECT string_agg(DISTINCT r.role, ',') FROM org_role r WHERE r.organisation_id = o.id) AS roles,
        (SELECT max(r.loan_max) FROM org_role r WHERE r.organisation_id = o.id) AS loan_max,
-       (SELECT count(*) FROM entity_state es WHERE es.entity_id = o.id AND es.basis IN ('lends','licensed')) AS states_n,
+       CASE  -- states it serves: listed ones; nationwide = 50; an exclusion list = 50 minus the excluded; else a stated count
+         WHEN EXISTS (SELECT 1 FROM entity_state es WHERE es.entity_id = o.id AND es.basis IN ('lends','licensed'))
+           THEN (SELECT count(*) FROM entity_state es WHERE es.entity_id = o.id AND es.basis IN ('lends','licensed'))
+         WHEN EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = o.id AND ec.attribute = 'nationwide' AND ec.value = 'true'::jsonb)
+           THEN 50
+         WHEN EXISTS (SELECT 1 FROM entity_state es WHERE es.entity_id = o.id AND es.basis = 'excluded')
+           THEN 50 - (SELECT count(*) FROM entity_state es WHERE es.entity_id = o.id AND es.basis = 'excluded')
+         ELSE (SELECT (ec.value #>> '{}')::int FROM entity_current ec WHERE ec.entity_id = o.id AND ec.attribute = 'states_count'
+               AND jsonb_typeof(ec.value) = 'number' LIMIT 1)
+       END AS states_n,
        cmp.value AS complaints, org_v.value AS organic, paid.value AS paid,
        ours.status AS our_status, ours.role AS our_role, ours.needs_confirmation,
        cs.value AS compliance, (SELECT count(*) FROM compliance_flag f WHERE f.entity_id = o.id) AS flags,

@@ -9,6 +9,7 @@ Compliance is a gate, not a component: see `views.compliance_gate`.
 """
 import json
 import math
+import re
 from collections import defaultdict
 from datetime import datetime, timezone
 
@@ -106,7 +107,8 @@ class _Facts:
                                      .where(m.Score.score_type == "lbs_index").order_by(m.Score.id)):
             self.lbs[e] = (float(v), comps)
         self.current = defaultdict(dict)  # entity -> attribute -> (value, claim_id)
-        wanted = ("priority", "how_to_work_with", "segment_text", "loan_max", "loan_min", "sheet_fit")
+        wanted = ("priority", "how_to_work_with", "segment_text", "loan_max", "loan_min", "sheet_fit",
+                  "lead_buying_evidence", "partner_list_url", "affiliate_programme", "appears_on_partner_lists")
         for e, attr, v, cid in s.execute(text_current(wanted)):
             self.current[e][attr] = (v, cid)
         self.children = defaultdict(int)
@@ -123,6 +125,52 @@ def text_current(attrs):
     return text("SELECT entity_id, attribute, value, claim_id FROM entity_current WHERE attribute = ANY(:a)").bindparams(a=list(attrs))
 
 
+LEAD_BUYING_RESEARCH_METHOD = (
+    "No lead-buying index for this organisation, so scored from cited evidence: named on a lead source's partner "
+    "list 70 (+5 per extra list), publishes its own partner/consent list 70, other evidence it buys leads 55, an "
+    "affiliate programme 40; +10 for each further kind of evidence; at most 85")
+
+
+def _text(v) -> str:
+    if isinstance(v, dict):
+        return str(v.get("value", ""))
+    return "" if v is None else str(v)
+
+
+def research_lead_buying(cur: dict) -> tuple[float, str, list] | None:
+    """Lead-buying score from research and list appearances, for lenders without a lead-buying index."""
+    signals = []
+    if "appears_on_partner_lists" in cur:
+        v, cid = cur["appears_on_partner_lists"]
+        n = len(v) if isinstance(v, list) else 1
+        signals.append((min(85, 70 + 5 * (n - 1)), f"on {n} lead source partner list{'s' if n != 1 else ''}", cid))
+    for attr, pts, label in (("partner_list_url", 70, "publishes a partner list"),
+                             ("lead_buying_evidence", 55, "evidence it buys leads"),
+                             ("affiliate_programme", 40, "affiliate programme")):
+        if attr in cur and _text(cur[attr][0]).strip():
+            signals.append((pts, label, cur[attr][1]))
+    if not signals:
+        return None
+    signals.sort(key=lambda x: -x[0])
+    score = min(85, signals[0][0] + 10 * (len(signals) - 1))
+    return float(score), "; ".join(x[1] for x in signals), [x[2] for x in signals]
+
+
+def segment_from_text(t: str) -> str | None:
+    t = t.lower()
+    if re.search(r"near[- ]?prime", t):
+        return "near-prime"
+    if re.search(r"sub[- ]?prime|bad credit|poor credit|low credit|no credit|underbanked|credit[- ]challenged", t):
+        return "subprime"
+    if re.search(r"non[- ]?prime", t):
+        return "nonprime"
+    if re.search(r"all credit|any credit|every credit", t):
+        return "all"
+    if re.search(r"\bprime\b|excellent credit|good credit", t):
+        return "prime"
+    return None
+
+
 def _component(score, raw, method, claim_ids=()):
     return {"score": score, "raw": raw, "method": method, "claim_ids": [c for c in claim_ids if c]}
 
@@ -135,6 +183,10 @@ def buyer_components(org: m.Organisation, f: _Facts, tables: dict) -> dict:
         c["lead_buying"] = _component(round(v, 1), f"{v:g} (Lead-buying strength sheet, row {comps.get('row')})",
                                       "Lead-buying strength index (0-100): partner lists 30, organic 20, paid 15, "
                                       "disclosed 15, affiliate programme 10, conferences 5, hiring 5", [])
+    else:
+        lb = research_lead_buying(f.current[org.id])
+        if lb:
+            c["lead_buying"] = _component(lb[0], lb[1], LEAD_BUYING_RESEARCH_METHOD, lb[2])
     sizes = []
     for metric, label in (("cfpb_complaints_12m", "CFPB complaints 12m"), ("ahrefs_organic_visits", "organic visits/mo"),
                           ("ahrefs_paid_spend_usd", "paid search $/mo")):
@@ -164,6 +216,12 @@ def buyer_components(org: m.Organisation, f: _Facts, tables: dict) -> dict:
     if seg:
         c["segment"] = _component(tables["segment"].get(seg, 50), seg, "Segment from research",
                                   [cid for r in roles if r.segment for cid in r.claim_ids])
+    elif "segment_text" in f.current[org.id]:
+        v, cid = f.current[org.id]["segment_text"]
+        seg = segment_from_text(_text(v))
+        if seg:
+            c["segment"] = _component(tables["segment"].get(seg, 50), f"{seg} ({_text(v)[:80]})",
+                                      "Segment from research or the spreadsheet text", [cid])
     c["state_overlap"] = _component(None, None, "Waiting for traffic-by-state data from the internal source")
     return c
 

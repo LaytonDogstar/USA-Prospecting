@@ -365,14 +365,26 @@ def linked_answers(s, review_item_id: int) -> list[dict]:
     return out
 
 
+TARGET_DEPRIORITISE = (r"\m(bank|bancorp|bancshares|mortgage|home loans?|credit union|federal|auto|motor|student|"
+                       r"education|leasing|insurance|servicing|recovery|collections?|capital one|discover|synchrony)\M")
+
+
 def pilot_targets(s, n: int) -> list[m.Organisation]:
-    """Unresearched CFPB companies, largest complaint volume first, not yet given a research pass."""
+    """Unresearched CFPB companies most likely to buy our leads first:
+    1. already seen buying (named on a lead source's partner list) or tribal (online small-dollar lenders);
+    2. not obviously a bank, mortgage, auto, student-loan or collections business (by name);
+    3. most payday / instalment / line-of-credit complaints (small-dollar consumer lending), then total complaints."""
+    if n <= 0:
+        return []
     ids = [r[0] for r in s.execute(text("""
         SELECT o.id FROM organisation o
         JOIN entity_current st ON st.entity_id = o.id AND st.attribute = 'sheet_universe_status'
              AND st.value = '"candidate - not yet researched"'::jsonb
         LEFT JOIN LATERAL (SELECT value FROM metric_snapshot WHERE entity_id = o.id AND metric = 'cfpb_complaints_12m'
                            ORDER BY retrieved_at DESC LIMIT 1) c ON true
+        LEFT JOIN LATERAL (SELECT sum(CASE WHEN jsonb_typeof(ec.value) = 'number' THEN (ec.value #>> '{}')::numeric END) AS v
+                           FROM entity_current ec WHERE ec.entity_id = o.id AND ec.attribute IN
+                           ('cfpb_complaints_payday_12m', 'cfpb_complaints_installment_12m', 'cfpb_complaints_loc_12m')) sd ON true
         LEFT JOIN compliance_status cs ON cs.entity_id = o.id
         WHERE o.lifecycle IN ('active','candidate') AND cs.value IS DISTINCT FROM 'blocked'
           AND (SELECT count(*) FROM job_run jr, jsonb_array_elements(jr.errors) e
@@ -381,7 +393,13 @@ def pilot_targets(s, n: int) -> list[m.Organisation]:
           AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.kind = 'research' AND o.id = ANY(ri.entity_ids)
                           -- a rejected pass that found nothing is tried again
                           AND NOT (ri.status = 'rejected' AND coalesce(ri.payload->'counts', '{}'::jsonb) = '{}'::jsonb))
-        ORDER BY c.value DESC NULLS LAST, o.id LIMIT :n"""), {"n": n, "max_failed": MAX_FAILED_DAYS})]
+        ORDER BY
+          (EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = o.id AND ec.attribute = 'appears_on_partner_lists')
+           OR EXISTS (SELECT 1 FROM org_role r WHERE r.organisation_id = o.id AND r.tribe_id IS NOT NULL)
+           OR EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = o.id AND ec.attribute = 'tribe')) DESC,
+          (coalesce(o.legal_name, o.display_name) ~* :deprioritise) ASC,
+          coalesce(sd.v, 0) DESC, c.value DESC NULLS LAST, o.id
+        LIMIT :n"""), {"n": n, "max_failed": MAX_FAILED_DAYS, "deprioritise": TARGET_DEPRIORITISE})]
     return [s.get(m.Organisation, i) for i in ids]
 
 
@@ -510,6 +528,8 @@ def apply_research(store: Store, item: m.ReviewItem) -> int:
             if st["basis"]:
                 for code in st["states"]:
                     store.state(org.id, code, st["basis"], c)
+            elif st["count"] and not st["nationwide"]:  # "available in 30 states": a count with no names
+                store.claim(org.id, "states_count", st["count"], src, confidence=c.confidence, method=p.PARSE_METHOD)
         elif c.attribute in ("operator_group", "tribe"):
             link_group(store, org, val, src, c.confidence, attribute=f"{c.attribute}_research")
         elif c.attribute == "litigation_note":
@@ -652,3 +672,21 @@ def research_compare(store: Store, n: int = 20, client=None, models: tuple[str, 
         ctx.run.args = {**ctx.run.args, "result": out}
         log.info("model test result: %s", json.dumps(out))
     return out
+
+
+def backfill_state_counts(store: Store) -> int:
+    """Accepted research that says 'available in N states' without naming them (before states_count existed)."""
+    s = store.s
+    n = 0
+    rows = s.execute(text("""
+        SELECT c.id, c.entity_id, c.value, c.source_id, c.confidence FROM claim c
+        WHERE c.attribute = 'states_text' AND c.status = 'accepted'
+          AND NOT EXISTS (SELECT 1 FROM entity_state es WHERE es.entity_id = c.entity_id)
+          AND NOT EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = c.entity_id
+                          AND ec.attribute IN ('states_count', 'nationwide'))""")).all()
+    for cid, eid, val, src_id, conf in rows:
+        st = p.states(val.get("value") if isinstance(val, dict) else val)
+        if st["count"] and not st["nationwide"] and not st["basis"]:
+            store.claim(eid, "states_count", st["count"], s.get(m.Source, src_id), confidence=conf, method=p.PARSE_METHOD)
+            n += 1
+    return n

@@ -100,7 +100,10 @@ Existing-partner safeguard: an organisation with an open `possible_match` review
 
 Display names: `normalise.friendly_name` shows the trading brand when the record carries a legal name (and tidies ALL-CAPS names); the legal name stays visible underneath.
 
-Scoring rules: components score 0-100. A component nobody has data for yet (state overlap, traffic overlap: they need the internal source) is left out for everyone; a component missing for one organisation scores 25 ("unknown") so thin records don't outrank researched ones. Compliance is a gate, not a component: `blocked` is hidden from ranked views by default, `review` shows a warning.
+Scoring rules: lead-buying uses the Lead-buying strength index when there is one, otherwise cited research evidence
+(`scoring.research_lead_buying`: partner lists, lead-buying evidence, affiliate programme; at most 85); segment falls back
+to the researched segment text. Research targets likely buyers first (`research.pilot_targets`: on a lead source's
+partner list or tribal, not bank/mortgage/auto by name, most small-dollar complaints). Components score 0-100. A component nobody has data for yet (state overlap, traffic overlap: they need the internal source) is left out for everyone; a component missing for one organisation scores 25 ("unknown") so thin records don't outrank researched ones. Compliance is a gate, not a component: `blocked` is hidden from ranked views by default, `review` shows a warning.
 
 Web rules: every page needs a session except `/login`, `/healthz`, `/static`. Viewers read; admins edit. Every POST goes through `admin_user` (role + CSRF). Every edit writes `audit_log`. Merges and links only happen from a review decision.
 

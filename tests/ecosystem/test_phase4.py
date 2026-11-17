@@ -375,3 +375,21 @@ def test_model_comparison_grades_blind_and_keeps_the_better_card(store, targets_
     assert "claude-opus" not in "".join(c.graded) and "sonnet" not in "".join(c.graded)  # blind
     cards = list(s.scalars(select(m.ReviewItem).where(m.ReviewItem.kind == "research")))
     assert len(cards) == 2 and all(cd.payload["model"] == "claude-opus-5-5" for cd in cards)
+
+
+def test_research_targets_likely_buyers_first(store, targets_file):
+    from ecosystem.research import pilot_targets
+    import_targets(store, targets_file)
+    s = store.s
+    targets = pilot_targets(s, 50)
+    assert targets
+    bank = store.new_org("Example Savings Bank")
+    s.flush()
+    names = [o.display_name for o in pilot_targets(s, 50)]
+    assert "Example Savings Bank" not in names or names.index("Example Savings Bank") == len(names) - 1
+    # a company named on a lead source's partner list jumps the queue
+    last = targets[-1]
+    src = store.url_source("https://source.example/partners", "partner_list")
+    store.claim(last.id, "appears_on_partner_lists", [{"domain": "source.example"}], src, confidence="high", method="import:v1")
+    s.flush()
+    assert pilot_targets(s, 50)[0].id == last.id

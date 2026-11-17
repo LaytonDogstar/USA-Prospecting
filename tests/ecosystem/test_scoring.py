@@ -56,7 +56,7 @@ def test_fit_and_traffic_rules():
     class F:
         def __init__(self, loan_max):
             self.roles = {1: [NS(role="lender_state_licensed", loan_max=loan_max, segment=None, claim_ids=[1])]}
-            self.lbs, self.metrics, self.top = {}, {}, {}
+            self.lbs, self.metrics, self.top, self.current = {}, {}, {}, {1: {}}
     fit = lambda x: buyer_components(NS(id=1), F(x), DEFAULT_TABLES)["price_volume_fit"]["score"]
     assert fit(800) == 75 and fit(2500) == 100 and fit(5000) == 100 and fit(8000) == 70
     assert fit(30000) == 20  # prime-sized loans are a poor fit for subprime pingtree leads
@@ -76,3 +76,18 @@ def test_shared_name_or_website_raises_dedup(store):
     item = store.s.scalar(select(m.ReviewItem).where(m.ReviewItem.kind == "dedup",
                                                      m.ReviewItem.entity_ids.contains([a.id, b.id])))
     assert item is not None and "share the name zentrixcash" in item.payload["reasons"]
+
+
+def test_research_evidence_scores_lead_buying_and_segment():
+    from ecosystem.scoring import research_lead_buying, segment_from_text
+    assert research_lead_buying({}) is None
+    one = research_lead_buying({"lead_buying_evidence": ({"value": "Privacy policy names marketing partners", "quote": "x"}, 1)})
+    assert one[0] == 55 and one[2] == [1]
+    many = research_lead_buying({"partner_list_url": ({"value": "https://x.example/partners"}, 2),
+                                 "affiliate_programme": ({"value": "Affiliate programme"}, 3),
+                                 "appears_on_partner_lists": ([{"domain": "a.example"}, {"domain": "b.example"}], 4)})
+    assert many[0] == 85  # 75 + 10 + 10, capped at 85 (below a full lead-buying index)
+    assert segment_from_text("Subprime borrowers with bad credit") == "subprime"
+    assert segment_from_text("near-prime and prime") == "near-prime"
+    assert segment_from_text("Prime borrowers with good credit") == "prime"
+    assert segment_from_text("instalment loans") is None
