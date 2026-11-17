@@ -15,7 +15,8 @@ from . import budget, models as m
 LEVELS = ("problem", "action", "warning", "info")   # most urgent first
 CATEGORIES = ("review", "job", "budget", "daily_review")
 JOB_LABELS = {"research": "Research", "ahrefs_fill_traffic": "Ahrefs traffic", "ahrefs_serp_snapshot": "Search snapshot",
-              "upkeep": "Upkeep", "assistant": "Assistant"}
+              "upkeep": "Upkeep", "assistant": "Assistant",
+              "research_compare": "Model test"}
 
 
 def add(s, category: str, level: str, title: str, body: str | None = None, link: str | None = None,

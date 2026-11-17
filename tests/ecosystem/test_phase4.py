@@ -337,3 +337,41 @@ def test_retry_with_basic_web_tools_and_skip_repeat_failures(store, targets_file
                        errors=[{"message": f"{other.display_name}: RuntimeError: web search failed (x)", "org_id": other.id}]))
     s.flush()
     assert other.id not in {o.id for o in pilot_targets(s, 50)}
+
+
+def test_model_comparison_grades_blind_and_keeps_the_better_card(store, targets_file):
+    from ecosystem.research import research_compare
+    import_targets(store, targets_file)
+    s = store.s
+    usage = NS(input_tokens=1000, output_tokens=100, cache_creation_input_tokens=0, cache_read_input_tokens=0,
+               server_tool_use=None)
+
+    class Both:
+        def __init__(self):
+            self.beta, self.graded = NS(messages=NS(create=self.create)), []
+
+        def create(self, **kw):
+            if "tools" not in kw:  # the grader: B is whichever came second; it says the longer list is better
+                text_ = kw["messages"][0]["content"]
+                a, b = text_.split('<result label="B">')
+                na, nb = a.count("\n- "), b.count("\n- ")
+                self.graded.append(text_)
+                body = {"a_supported": na, "b_supported": nb, "a_wrong": 0, "b_wrong": 0,
+                        "better": "A" if na > nb else "B" if nb > na else "tie", "notes": ""}
+                return NS(content=[NS(type="text", text=json.dumps(body))], stop_reason="end_turn", usage=usage)
+            k = 2 if kw["model"] == "claude-opus-5-5" else 1
+            page = NS(type="web_fetch_tool_result", model_dump=lambda: {"type": "web_fetch_tool_result",
+                      "content": {"type": "web_fetch_result", "url": "https://www.co.example/about"}})
+            rec = NS(type="tool_use", name="record_findings", id="t", input={
+                "summary": "A lender.", "is_us_consumer_lender": True, "lender_category": "state_licensed", "answers": [],
+                "findings": [{"attribute": a, "value": "x", "source_url": "https://www.co.example/about", "quote": "x",
+                              "confidence": "high"} for a in ("description", "website")[:k]]})
+            return NS(content=[page, rec], stop_reason="tool_use", usage=usage)
+
+    c = Both()
+    out = research_compare(store, n=2, client=c)
+    bm = out["by_model"]
+    assert out["graded"] == 2 and bm["claude-opus-5-5"]["wins"] == 2 and bm["claude-sonnet-5-5"]["supported"] == 2
+    assert "claude-opus" not in "".join(c.graded) and "sonnet" not in "".join(c.graded)  # blind
+    cards = list(s.scalars(select(m.ReviewItem).where(m.ReviewItem.kind == "research")))
+    assert len(cards) == 2 and all(cd.payload["model"] == "claude-opus-5-5" for cd in cards)
