@@ -17,6 +17,9 @@
     <option value="">Any</option><option value="none" {{ 'selected' if f.our == 'none' }}>None yet</option>
     <option value="any" {{ 'selected' if f.our == 'any' }}>Any relationship</option>
     {% for s in our_statuses %}<option value="{{ s }}" {{ 'selected' if f.our == s }}>{{ s | replace('_', ' ') }}</option>{% endfor %}</select></label>
+  <label>Researched <select name="researched"><option value="">Any</option>
+    <option value="yes" {{ 'selected' if f.researched == 'yes' }}>Yes (verified facts)</option>
+    <option value="no" {{ 'selected' if f.researched == 'no' }}>Not yet</option></select></label>
   <label>Compliance <select name="compliance">
     {% for v, label in [('hide_blocked','Hide blocked'),('all','All'),('flagged','Has flags'),('unreviewed','Not reviewed'),('clear','Clear'),('review','Review'),('blocked','Blocked only')] %}
     <option value="{{ v }}" {{ 'selected' if (f.compliance or 'hide_blocked') == v }}>{{ label }}</option>{% endfor %}</select></label>

@@ -410,3 +410,17 @@ def test_ask_researchers_from_a_card(web, session):
     assert "Sent back for research" in web.get("/admin/research").text
     again = web.post(f"/review/{it.id}/ask", data={"csrf": csrf(web, "/review"), "questions": "x"})
     assert again.status_code == 400
+
+
+def test_researched_filter_and_ask_about_an_org(web, session):
+    from ecosystem import models as m
+    from sqlalchemy import select
+    login(web)
+    assert web.get("/lenders?researched=yes").status_code == 200
+    assert web.get("/lenders?researched=no&format=csv").status_code == 200
+    oid = session.scalar(select(m.Organisation.id).where(m.Organisation.lifecycle != "merged"))
+    r = web.post(f"/org/{oid}/ask", data={"csrf": csrf(web), "questions": "Does it publish a partner list?"},
+                 follow_redirects=False)
+    assert r.status_code == 303
+    req = session.scalar(select(m.ResearchRequest).where(m.ResearchRequest.organisation_id == oid))
+    assert req and req.review_item_id is None and req.status == "queued"

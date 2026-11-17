@@ -14,7 +14,8 @@ from ..views import OUR_STATUSES, ROLE_LABELS, org_table, people_table, tribes
 
 router = APIRouter()
 PAGE = 100
-FILTER_KEYS = ("q", "role", "our", "compliance", "state", "tier", "min_score", "sort", "screened", "tribe", "group")
+FILTER_KEYS = ("q", "role", "our", "compliance", "state", "tier", "min_score", "sort", "screened", "tribe", "group",
+               "researched")
 
 
 def _filters(request: Request) -> dict:

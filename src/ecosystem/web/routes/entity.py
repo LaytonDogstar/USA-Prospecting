@@ -264,3 +264,18 @@ def remove_role(org_id: int, role: str, request: Request, reason: str = Form(...
     rescore(st)
     flash(request, f"Removed {ROLE_LABELS.get(role, role)} and re-scored.")
     return RedirectResponse(f"/org/{org.id}", status_code=303)
+
+
+@router.post("/org/{org_id}/ask")
+def ask_about_org(org_id: int, request: Request, questions: str = Form(...), mode: str = Form("ownership"),
+                  db: Session = Depends(get_db), user=Depends(admin_user)):
+    """Send questions about an organisation to the researchers; the answers come back as a research card."""
+    from ...research import RequestRefused, ask
+    try:
+        req = ask(store_for(db, user), org_id, questions.splitlines(), mode,
+                  context=f"{user.username} asked about this organisation directly")
+    except RequestRefused as e:
+        raise HTTPException(400, str(e))
+    flash(request, f"Sent to the researchers ({len(req.questions)} question{'s' if len(req.questions) != 1 else ''}); "
+                   "the answers arrive in Review after the next research run.")
+    return RedirectResponse(f"/org/{org_id}", status_code=303)

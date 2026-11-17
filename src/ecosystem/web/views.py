@@ -80,6 +80,9 @@ def org_table(db, kind: str, f: dict, limit: int | None = 100, offset: int = 0) 
     if f.get("role") in roles:
         params["role"] = f["role"]
         where.append("EXISTS (SELECT 1 FROM org_role r WHERE r.organisation_id = o.id AND r.role = :role)")
+    if f.get("researched") in ("yes", "no"):  # has (or hasn't) accepted facts from the research pass
+        where.append(("" if f["researched"] == "yes" else "NOT ") + "EXISTS (SELECT 1 FROM claim rc WHERE rc.entity_id = o.id "
+                     "AND rc.status = 'accepted' AND rc.method LIKE 'research:%')")
     our = f.get("our")
     if our == "none":
         where.append("ours.id IS NULL")

@@ -68,6 +68,9 @@ def main():
     p.add_argument("--question", action="append", required=True, help="repeat for up to 3 questions")
     p.add_argument("--investigate", default="record", choices=["left", "right", "record"])
     p.add_argument("--mode", default="ownership", choices=["ownership", "profile"])
+    p = sub.add_parser("ask-org"); p.add_argument("org", type=int)
+    p.add_argument("--question", action="append", required=True)
+    p.add_argument("--mode", default="ownership", choices=["ownership", "profile"])
     p = sub.add_parser("run-now"); p.add_argument("job")
     a = ap.parse_args()
     pt = Portal()
@@ -90,6 +93,9 @@ def main():
         r = pt.post(f"/review/{a.item}/ask", {"questions": "\n".join(a.question), "investigate": a.investigate,
                                               "mode": a.mode})
         out = {"item": a.item, "sent": r.status_code == 303}
+    elif a.cmd == "ask-org":
+        r = pt.post(f"/org/{a.org}/ask", {"questions": "\n".join(a.question), "mode": a.mode})
+        out = {"org": a.org, "sent": r.status_code == 303}
     elif a.cmd == "undo-screen":
         r = pt.post(f"/review/{a.item}/undo-screen", {"note": a.note})
         out = {"item": a.item, "undone": r.status_code == 303}
