@@ -25,7 +25,10 @@ from .normalise import norm_domain
 from .store import Store
 
 log = logging.getLogger("ecosystem.research")
-DEFAULT_MODEL = os.environ.get("RESEARCH_MODEL", "claude-sonnet-5-5")
+DEFAULT_MODEL = os.environ.get("RESEARCH_MODEL", "claude-sonnet-5-5")    # first pass on new companies (breadth)
+# questions sent back by the manager, the daily review or a person (depth: owners, brands, partner lists). The model
+# test on 17 Nov 2026 found Opus with about twice the supported facts per company at about 3.5x the cost.
+FOLLOWUP_MODEL = os.environ.get("FOLLOWUP_MODEL", "claude-opus-5-5")
 STOP_AFTER_SAME_ERROR = 3  # a failure repeating for every company (bad key, no credit) stops the batch early
 # USD per million tokens (input, output); cache writes 1.25x input, cache reads 0.1x input. Web search $10 / 1,000.
 PRICES = {"claude-sonnet-5-5": (2.0, 10.0), "claude-opus-5-5": (4.0, 20.0), "claude-haiku-5-5": (0.10, 0.50)}
@@ -400,7 +403,7 @@ def research_batch(store: Store, n: int = 20, client=None, model: str = DEFAULT_
         out["requests"] = sum(1 for _, r in tasks if r is not None)
         last_error, repeats = None, 0
         for org, req in tasks:
-            use_model = (req.model if req is not None and req.model in PRICES else model)
+            use_model = model if req is None else (req.model if req.model in PRICES else FOLLOWUP_MODEL)
             if req is not None:
                 req.status, req.job_run_id = "running", ctx.run.id
                 s.flush()

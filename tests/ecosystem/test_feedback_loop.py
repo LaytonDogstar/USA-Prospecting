@@ -30,9 +30,10 @@ class Manager:
 class Researcher:
     """Opens the brand's terms page and answers the question from it."""
     def __init__(self):
-        self.beta, self.systems, self.briefs = NS(messages=NS(create=self.create)), [], []
+        self.beta, self.systems, self.briefs, self.models = NS(messages=NS(create=self.create)), [], [], []
 
     def create(self, **kw):
+        self.models.append(kw["model"])
         self.systems.append(kw["system"])
         self.briefs.append(kw["messages"][0]["content"])
         page = NS(type="web_fetch_tool_result", model_dump=lambda: {"type": "web_fetch_tool_result",
@@ -85,6 +86,7 @@ def test_full_loop(session):
     res = Researcher()
     rb = research_batch(Store(session, actor="scheduler"), n=1, client=res)
     assert rb["requests"] == 1 and "ownership and partners investigator" in res.systems[0]
+    assert res.models == ["claude-opus-5-5"]  # follow-up questions go to Opus; new companies stay on Sonnet
     assert "Questions to answer:" in res.briefs[0] and "Which company is named" in res.briefs[0]
     session.refresh(req)
     assert req.status == "done" and req.result_item_id
