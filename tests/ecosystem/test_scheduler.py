@@ -32,3 +32,17 @@ def test_schedules_off_by_default_and_upkeep_runs(session, migrated, monkeypatch
 def test_params_are_clamped():
     assert scheduler.clean_params("research", {"n": "5000"}) == {"n": 200}
     assert scheduler.clean_params("research", {"bogus": 1}) == {"n": 40}
+
+
+def test_same_job_never_runs_twice_at_once(session, migrated):
+    import pytest
+    from sqlalchemy import text
+    other = migrated.connect()
+    other.execute(text("SELECT pg_advisory_lock(hashtext('ecosystem-job:upkeep'))"))
+    try:
+        with pytest.raises(scheduler.AlreadyRunning):
+            scheduler.run_job(session, "upkeep", "t", {})
+    finally:
+        other.execute(text("SELECT pg_advisory_unlock(hashtext('ecosystem-job:upkeep'))"))
+        other.close()
+    scheduler.run_job(session, "upkeep", "t", {})  # free again once the other holder is done

@@ -74,7 +74,22 @@ def upkeep(store: Store) -> dict:
     return out
 
 
+class AlreadyRunning(RuntimeError):
+    pass
+
+
 def run_job(s, job: str, actor: str, kwargs: dict) -> None:
+    """Run one job. A Postgres advisory lock per job name means the same job never runs twice at once (a schedule,
+    a Run now and a manual start racing each other would otherwise each pass the budget check and overspend)."""
+    if not s.scalar(text("SELECT pg_try_advisory_lock(hashtext(:k))"), {"k": f"ecosystem-job:{job}"}):
+        raise AlreadyRunning(f"{job} is already running")
+    try:
+        _run_job(s, job, actor, kwargs)
+    finally:
+        s.execute(text("SELECT pg_advisory_unlock(hashtext(:k))"), {"k": f"ecosystem-job:{job}"})
+
+
+def _run_job(s, job: str, actor: str, kwargs: dict) -> None:
     from . import assistant, enrich, research
     if job == "assistant":
         assistant.run_assistant(Store(s, actor=assistant.ACTOR), **kwargs)
@@ -99,6 +114,8 @@ def run_schedule(s, sched: m.JobSchedule, actor: str = "scheduler") -> str:
         failed = None
         try:
             run_job(s, sched.job, actor, clean_params(sched.job, sched.params or {}))
+        except AlreadyRunning:
+            failed = "skipped: already running"
         except Exception as e:  # the run itself is logged as failed in job_run
             log.exception("scheduled %s failed", sched.job)
             failed = f"failed: {type(e).__name__}"

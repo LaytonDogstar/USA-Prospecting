@@ -589,6 +589,7 @@ def research_compare(store: Store, n: int = 20, client=None, models: tuple[str, 
             client = anthropic.Anthropic()
         rng = random.Random(ctx.run.id)
         for org in pilot_targets(s, n):
+            ctx.run.args = {**ctx.run.args, "result": {**out, "by_model": stats}}  # kept if the budget stops it
             results = {}
             for mod in models:
                 try:
