@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from ... import budget, models as m, notify
 from ...assistant import allowed_choices, card_text, report, to_action
+from ...research import open_request
 from ...decisions import suggest, summaries
 from ..deps import admin_user, csrf_token, current_user, get_db, store_for
 
@@ -63,7 +64,8 @@ def review_json(kind: str = "", limit: int = 50, offset: int = 0, db: Session = 
             "id": it.id, "kind": it.kind, "title": it.title, "entity_ids": list(it.entity_ids),
             "card": card_text(db, it, summ),
             "suggestion": sug, "assistant": (it.payload or {}).get("assistant"),
-            "actions": {c: to_action(it, c) for c in sorted(allowed_choices(it)) if to_action(it, c)},
+            "actions": {c: to_action(it, c) for c in sorted(allowed_choices(it, False)) if to_action(it, c)},
+            "research_in_progress": open_request(db, it.id) is not None,
         })
     return {"total": total, "offset": offset, "items": out}
 

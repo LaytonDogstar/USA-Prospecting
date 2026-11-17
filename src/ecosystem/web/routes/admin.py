@@ -297,6 +297,8 @@ def research_page(request: Request, db: Session = Depends(get_db), user=Depends(
                   models=list(PRICES), default_model=DEFAULT_MODEL,
                   running={r.job for r in runs if r.status == "running"}, ahrefs_plan=request.session.pop("ahrefs_plan", None),
                   schedules=scheduler.ensure_defaults(db), schedule_defaults=scheduler.DEFAULTS,
+                  requests=[(r, db.get(m.Organisation, r.organisation_id)) for r in db.scalars(
+                      select(m.ResearchRequest).order_by(m.ResearchRequest.id.desc()).limit(30))],
                   scheduler_on=scheduler.enabled_by_env(),
                   env_keys={k: bool(os.environ.get(k)) for k in ("ANTHROPIC_API_KEY", "AHREFS_API_KEY")})
 

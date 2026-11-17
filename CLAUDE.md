@@ -52,6 +52,10 @@ src/ecosystem/
   research.py    research pass with Claude (web_search/web_fetch + strict record_findings tool). Findings must cite
                  a URL from the run's own search/fetch results or they are dropped; kept findings are *proposed*
                  claims plus one 'research' review item; apply_research / reject_research on the decision
+  research.py also holds the feedback loop: ask() queues a ResearchRequest (up to 3 questions, profile or ownership
+                 mode, max 2 per card, one open at a time); research_batch takes queued requests before new companies;
+                 answers are citation-checked like findings and land on a research card linked to the asking card
+                 (payload request_for); linked_answers() shows them on the original card
   decisions.py   decide() = the one place a review item is acted on (single and bulk); suggest() = rule-based
                  suggested decision per item, `safe` ones can be applied in bulk by an admin (/review/bulk)
   scheduler.py   job_schedule: research / Ahrefs traffic / SERP / upkeep run by themselves when an admin turns
@@ -60,7 +64,9 @@ src/ecosystem/
   assistant.py   daily assistant (schedule "assistant", last in the run order): applies safe suggestions as user
                  "assistant", writes a Claude recommendation onto every other open card (payload["assistant"]; never
                  decides those), report() for /report. Card text is data inside <card>; answers are checked against
-                 the card's allowed choices. ASSISTANT_MODEL (default RESEARCH_MODEL)
+                 the card's allowed choices. The manager runs on Opus 5.5 (ASSISTANT_MODEL); it can answer
+                 ask_research (send the card back with questions), waits while research is pending, and re-reviews the
+                 card when the answers arrive
   notify.py      notifications (header bell, Home "Needs you", /notifications): job failed / budget stopped /
                  skipped / errors (after each scheduled job), budget forecast and review summary (after the assistant),
                  and the daily Claude review's report (POST /api/notifications, portal.py notify). Idempotent by
@@ -80,10 +86,10 @@ src/ecosystem/
                  map; text inserted with textContent only), vendor/ (Cytoscape.js 3.30.4, MIT, served locally
                  because the CSP only allows same-origin scripts)
 scripts/portal.py  client for the live portal used by the scheduled Claude review sessions (reads ECOSYSTEM_URL,
-                 ECOSYSTEM_USERNAME, ECOSYSTEM_PASSWORD): status, report, review, decide, run-now. Backed by the read-only
+                 ECOSYSTEM_USERNAME, ECOSYSTEM_PASSWORD): status, report, review, decide, ask, undo-screen, notify, run-now. Backed by the read-only
                  JSON routes in web/routes/api.py (/api/status, /api/report, /api/review, /api/csrf); decisions go
                  through the normal /review/{id}/decide form post. No commands for users, budgets, weights or imports
-migrations/      Alembic. 0001 = initial schema + entity_current view; 0002 = latest_score view; 0003 = provider_budget; 0004 = job_schedule; 0005 = notification
+migrations/      Alembic. 0001 = initial schema + entity_current view; 0002 = latest_score view; 0003 = provider_budget; 0004 = job_schedule; 0005 = notification; 0006 = research_request
 tests/ecosystem/ pytest; conftest builds made-up workbooks. test_acceptance_real_data.py runs only
                  when the real files and data/reference/acceptance.json are present.
 ```

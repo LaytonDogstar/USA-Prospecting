@@ -41,6 +41,8 @@ def inbox(request: Request, kind: str = "", status: str = "open", page: int = 1,
                 (c, db.get(m.Source, c.source_id)) for c in db.scalars(select(m.Claim).where(
                     m.Claim.entity_id == it.entity_ids[0], m.Claim.job_run_id == it.payload.get("run"),
                     m.Claim.method.like("research:%")).order_by(m.Claim.attribute, m.Claim.id))]
+    from ...research import linked_answers
+    followups = {it.id: linked_answers(db, it.id) for it in items}
     st = store_for(db, user)
     suggestions = {it.id: suggest(st, it, summaries) for it in items} if status == "open" else {}
     safe_on_tab = 0
@@ -50,6 +52,7 @@ def inbox(request: Request, kind: str = "", status: str = "open", page: int = 1,
         safe_on_tab = sum(1 for it in tab if (sug := suggest(st, it, tab_summ)) and sug["safe"])
     return render(request, "review.html", user, items=items, kind=kind, status=status, counts=counts, labels=REVIEW_LABELS,
                   summaries=summaries, proposed=proposed, total=total, page=page, suggestions=suggestions,
+                  followups=followups,
                   safe_on_tab=safe_on_tab, pages=(total - 1) // PAGE + 1 if total else 1)
 
 
@@ -91,3 +94,23 @@ def undo_screen_route(item_id: int, request: Request, note: str = Form(""), db: 
         raise HTTPException(400, str(e))
     flash(request, f"#{it.id}: {done}")
     return RedirectResponse("/review?kind=research&status=done", status_code=303)
+
+
+@router.post("/review/{item_id}/ask")
+def ask_route(item_id: int, request: Request, questions: str = Form(...), investigate: str = Form("record"),
+              mode: str = Form("ownership"), db: Session = Depends(get_db), user=Depends(admin_user)):
+    """Send a card back to the researchers with specific questions; the answers come back on this card."""
+    from ...research import RequestRefused, ask
+    it = db.get(m.ReviewItem, item_id)
+    if it is None or it.status != "open":
+        raise HTTPException(404, "No open review item with that id")
+    ids = list(it.entity_ids)
+    target = {"left": ids[0] if ids else None, "right": ids[1] if len(ids) > 1 else None}.get(investigate, ids[0] if ids else None)
+    try:
+        req = ask(store_for(db, user), target, questions.splitlines(), mode, review_item=it,
+                  context=f"{user.username} is deciding card #{it.id} ({it.title})")
+    except RequestRefused as e:
+        raise HTTPException(400, str(e))
+    flash(request, f"#{it.id}: sent to the researchers ({len(req.questions)} question{'s' if len(req.questions) != 1 else ''}). "
+                   "The answers come back on this card after the next research run.")
+    return RedirectResponse(f"/review?kind={it.kind}#item-{it.id}", status_code=303)

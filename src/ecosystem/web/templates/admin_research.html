@@ -69,6 +69,18 @@
   </div>
 </section>
 
+<section class="panel" style="margin-top:16px" id="requests">
+  <h2>Sent back for research <span class="small muted">{{ requests | selectattr('0.status', 'equalto', 'queued') | list | length }} waiting · taken first by the next research run</span></h2>
+  {% if not requests %}<p class="small muted">Nothing yet. The manager (and you, from any review card) can send a card back with specific questions.</p>{% else %}
+  <table class="compact"><thead><tr><th>Asked</th><th>Company</th><th>Questions</th><th>By</th><th>Status</th></tr></thead><tbody>
+  {% for r, o in requests %}<tr><td class="small">{{ r.created_at.strftime('%d %b %H:%M') }}</td>
+    <td class="small">{% if o %}<a href="/org/{{ o.id }}">{{ o.display_name }}</a>{% endif %}<div class="muted">{{ r.mode }}</div></td>
+    <td class="small">{% for q in r.questions %}<div>{{ q }}</div>{% endfor %}{% if r.review_item_id %}<a href="/review#item-{{ r.review_item_id }}" class="muted">for card #{{ r.review_item_id }}</a>{% endif %}</td>
+    <td class="small">{{ r.requested_by }}</td>
+    <td class="small"><span class="chip {{ 'good' if r.status == 'done' else 'warn' if r.status == 'failed' else '' }}">{{ r.status }}</span>{% if r.result_item_id %} <a href="/review?kind=research#item-{{ r.result_item_id }}">answers</a>{% endif %}</td></tr>{% endfor %}
+  </tbody></table>{% endif %}
+</section>
+
 <section class="panel" style="margin-top:16px" id="schedules">
   <h2>Schedules <span class="small muted">{{ 'checked every 5 minutes' if scheduler_on else 'the scheduler is off on this server' }}</span></h2>
   <p class="small">Each schedule runs the same job as the buttons above, by itself, within the monthly budgets. All start switched off. Results land in Review. Only the <b>Assistant</b> decides anything, and only the clear cases marked <i>safe</i>; everything else gets a recommendation for you to confirm. See the <a href="/report">daily report</a>.</p>

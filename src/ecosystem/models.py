@@ -353,6 +353,27 @@ class Score(Base):
     __table_args__ = (Index("ix_score_entity_type_time", "entity_id", "score_type", "computed_at"),)
 
 
+class ResearchRequest(Base):
+    """A card sent back to the researchers with specific questions (by the manager, the daily review or a person).
+    The research job takes queued requests before new companies; the answers come back as a research card linked to
+    the card that asked, and the manager reviews both."""
+    __tablename__ = "research_request"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    organisation_id: Mapped[int] = mapped_column(ForeignKey("organisation.id"))
+    mode: Mapped[str] = mapped_column(String(20), default="profile")         # profile | ownership
+    questions: Mapped[list] = mapped_column(JSONB, default=list)
+    context: Mapped[str | None] = mapped_column(Text)
+    review_item_id: Mapped[int | None] = mapped_column(ForeignKey("review_item.id"))   # the card that asked
+    requested_by: Mapped[str] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(Text)                           # override, e.g. a harder case on Opus
+    status: Mapped[str] = mapped_column(String(12), default="queued")         # queued | running | done | failed
+    job_run_id: Mapped[int | None] = mapped_column(BigInteger)
+    result_item_id: Mapped[int | None] = mapped_column(BigInteger)            # the research card with the answers
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+    done_at: Mapped[datetime | None] = mapped_column(TS)
+
+
 class Notification(Base):
     """Something a person should look at: a failed or budget-stopped job, a budget about to run out, review items
     waiting, or the daily Claude review's report. Shown in the header bell, on Home and at /notifications."""

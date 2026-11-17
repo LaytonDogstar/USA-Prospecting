@@ -394,3 +394,19 @@ def test_viewer_can_mark_read_but_not_post(web, session):
     assert web.post("/notifications/read", data={"csrf": csrf(web, "/notifications")}, follow_redirects=False).status_code == 303
     tok = web.get("/api/csrf").json()["csrf"]
     assert web.post("/api/notifications", data={"csrf": tok, "level": "info", "title": "x"}).status_code in (403,)
+
+
+def test_ask_researchers_from_a_card(web, session):
+    from ecosystem import models as m
+    from sqlalchemy import select
+    login(web)
+    it = session.scalar(select(m.ReviewItem).where(m.ReviewItem.status == "open", m.ReviewItem.kind == "possible_match"))
+    page = web.get(f"/review?kind={it.kind}").text
+    assert "Ask the researchers" in page
+    r = web.post(f"/review/{it.id}/ask", data={"csrf": csrf(web, "/review"), "questions": "Who owns it?\nWhich bank?",
+                                               "investigate": "right", "mode": "ownership"}, follow_redirects=True)
+    assert r.status_code == 200 and "sent to the researchers (2 questions)" in r.text
+    assert "waiting for the next research run" in r.text
+    assert "Sent back for research" in web.get("/admin/research").text
+    again = web.post(f"/review/{it.id}/ask", data={"csrf": csrf(web, "/review"), "questions": "x"})
+    assert again.status_code == 400

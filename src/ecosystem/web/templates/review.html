@@ -67,6 +67,22 @@
   {% if ids | length == 2 %}<div class="pair">{{ side(summaries.get(ids[0])) }}{{ side(summaries.get(ids[1])) }}</div>
   {% elif ids %}<div class="pair">{{ side(summaries.get(ids[0])) }}</div>{% endif %}
 
+  {% for fu in followups.get(it.id, []) %}{% set rq = fu.request %}
+  <div class="panel small" style="margin:8px 0">
+    <b>Follow-up research</b> <span class="muted">({{ rq.mode }}, asked by {{ rq.requested_by }} {{ rq.created_at.strftime('%d %b') }})</span>
+    {% if rq.status in ('queued', 'running') %}<span class="chip">{{ 'waiting for the next research run' if rq.status == 'queued' else 'researching now' }}</span>
+    {% elif rq.status == 'failed' %}<span class="chip warn">failed</span> <span class="muted">{{ rq.error | truncate(140) }}</span>{% endif %}
+    <ul>{% for q in rq.questions %}{% set a = (fu.answers[loop.index0] if fu.answers | length > loop.index0 else none) %}
+      <li>{{ q }}{% if a %}<br><b>{{ a.answer }}</b>
+        {% if a.cited %}<a href="{{ a.source_url }}" rel="noopener noreferrer" target="_blank">source</a>{% if a.quote %} <span class="muted">“{{ a.quote | truncate(160) }}”</span>{% endif %}
+        {% else %}<span class="chip warn">no verified source</span>{% endif %}{% endif %}</li>{% endfor %}</ul>
+    {% if fu.item %}<a href="/review?kind=research{{ '&status=done' if fu.item.status != 'open' else '' }}#item-{{ fu.item.id }}">Full research card #{{ fu.item.id }}</a>{% endif %}
+  </div>{% endfor %}
+  {% if it.kind == 'research' and it.payload.get('questions') %}
+  <div class="panel small" style="margin:8px 0"><b>Answers to questions from {{ it.payload.requested_by }}</b>{% if it.payload.request_for %} about <a href="/review#item-{{ it.payload.request_for }}">card #{{ it.payload.request_for }}</a>{% endif %}
+    <ul>{% for a in it.payload.get('answers', []) %}<li>{{ a.question }}<br><b>{{ a.answer }}</b>
+      {% if a.cited %}<a href="{{ a.source_url }}" rel="noopener noreferrer" target="_blank">source</a>{% else %}<span class="chip warn">no verified source</span>{% endif %}</li>{% endfor %}</ul></div>
+  {% endif %}
   {% set sug = suggestions.get(it.id) %}
   {% set rec = it.payload.get('assistant') if it.status == 'open' else none %}
   {% if rec %}<p class="small"><b>Assistant recommends:</b> {{ rec.label }} <span class="chip {{ 'good' if rec.confidence == 'high' else 'warn' if rec.confidence == 'low' else '' }}">{{ rec.confidence }} confidence</span>
@@ -98,6 +114,16 @@
       <button name="action" value="reject">Reject</button>
     {% endif %}
   </form>
+  {% if not (it.payload.get('request_for')) %}
+  <details class="small" style="margin-top:6px"><summary>Ask the researchers</summary>
+    <form method="post" action="/review/{{ it.id }}/ask" class="stack">{{ csrf_field(csrf) }}
+      <textarea name="questions" rows="3" required placeholder="One question per line (up to 3), e.g.&#10;Which company is named as the lender in this brand's terms?&#10;Is this brand on the partner list of any of our buyers?"></textarea>
+      <div class="row">
+        {% if ids | length == 2 %}<label>Investigate <select name="investigate"><option value="left">left</option><option value="right">right</option></select></label>{% endif %}
+        <label>Focus <select name="mode"><option value="ownership">owners, brands, banks, partner lists</option><option value="profile">what it does, loans, states, licences</option></select></label>
+        <button>Send to the researchers</button>
+      </div>
+    </form></details>{% endif %}
   {% endif %}
 </div>
 {% else %}<p class="muted">Nothing here.</p>{% endfor %}

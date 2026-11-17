@@ -15,7 +15,7 @@ import os
 import re
 from datetime import datetime, timezone
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from . import budget, models as m
 from . import parsing as p
@@ -81,6 +81,20 @@ Rules:
   findings list."""
 
 
+OWNERSHIP_SYSTEM = SYSTEM.replace(
+    "Find facts about the one company you are given, using web search and web fetch.",
+    """You are the ownership and partners investigator. For the one company you are given, establish who is behind
+it and how it connects to other companies: the legal entity named in its terms, privacy policy, licences and
+footers; its parent, owner or tribe; the brands it lends under; the bank that originates its loans; whether it services
+loans for someone else; and which lead sources or partners its published partner / consent lists name.
+Use web search and web fetch.""")
+
+ANSWER_RULES = """
+You have also been asked specific questions (below). Answer each one in `answers`, in the same order, using only what
+you saw on pages in this session, with the URL and a verbatim quote. If you could not find the answer, say so plainly
+in `answer` and leave source_url and quote empty. Where an answer is also a fact in the list, record it as a finding too."""
+
+
 def _record_tool() -> dict:
     return {
         "name": "record_findings",
@@ -89,12 +103,23 @@ def _record_tool() -> dict:
         "input_schema": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["summary", "is_us_consumer_lender", "lender_category", "findings"],
+            "required": ["summary", "is_us_consumer_lender", "lender_category", "findings", "answers"],
             "properties": {
                 "summary": {"type": "string", "description": "Two or three sentences on who this is."},
                 "is_us_consumer_lender": {"type": "boolean"},
                 "lender_category": {"type": "string", "enum": list(LENDER_CATEGORIES),
                                     "description": "The one category that best fits, judged from the pages you saw."},
+                "answers": {
+                    "type": "array",
+                    "description": "One answer per question you were asked, in order; empty when there were none.",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["question", "answer", "source_url", "quote"],
+                        "properties": {"question": {"type": "string"}, "answer": {"type": "string"},
+                                       "source_url": {"type": "string"}, "quote": {"type": "string"}},
+                    },
+                },
                 "findings": {
                     "type": "array",
                     "items": {
@@ -115,7 +140,7 @@ def _record_tool() -> dict:
     }
 
 
-def _brief(s, org: m.Organisation) -> str:
+def _brief(s, org: m.Organisation, request: "m.ResearchRequest | None" = None) -> str:
     names = sorted({a for a, in s.execute(select(m.NameAlias.alias).where(m.NameAlias.entity_id == org.id))})
     domains = [d for d, in s.execute(select(m.Domain.hostname).where(m.Domain.organisation_id == org.id))]
     facts = s.execute(text("""SELECT attribute, value FROM entity_current WHERE entity_id = :id AND attribute = ANY(:a)"""),
@@ -126,7 +151,10 @@ def _brief(s, org: m.Organisation) -> str:
     return (f"Company (name in the CFPB complaint database): {org.legal_name or org.display_name}\n"
             f"Other names seen: {', '.join(n for n in names if n != org.display_name) or 'none'}\n"
             f"Known websites: {', '.join(domains) or 'none'}\nAlready known:\n{known}\n\n"
-            f"Find as many of these as you can verify:\n{wanted}")
+            f"Find as many of these as you can verify:\n{wanted}"
+            + (f"\n\nWhy you are looking again: {request.context}" if request is not None and request.context else "")
+            + ("\n\nQuestions to answer:\n" + "\n".join(f"{i}. {q}" for i, q in enumerate(request.questions, 1))
+               if request is not None and request.questions else ""))
 
 
 def _urls_in(obj, out: set) -> None:
@@ -173,20 +201,22 @@ MAX_FAILED_DAYS = 2  # a company whose searches failed this many times in 14 day
 
 
 def research_org(store: Store, org: m.Organisation, client, model: str = DEFAULT_MODEL, job_run_id: int | None = None,
-                 tools_variant: str = "dynamic") -> dict:
+                 tools_variant: str = "dynamic", request: "m.ResearchRequest | None" = None) -> dict:
     """One research pass. Returns {'findings', 'rejected', 'summary', 'cost', ...}; writes nothing itself."""
     budget.check(store.s, "anthropic", ESTIMATE_PER_ORG_USD)
     search_type, fetch_type = WEB_TOOLS[tools_variant]
     tools = [{"type": search_type, "name": "web_search", "max_uses": MAX_SEARCHES},
              {"type": fetch_type, "name": "web_fetch", "max_uses": MAX_FETCHES},
              _record_tool()]
-    messages = [{"role": "user", "content": _brief(store.s, org)}]
+    system = (OWNERSHIP_SYSTEM if request is not None and request.mode == "ownership" else SYSTEM) \
+        + (ANSWER_RULES if request is not None and request.questions else "")
+    messages = [{"role": "user", "content": _brief(store.s, org, request)}]
     seen_urls: set[str] = set()
     tool_errors: list[str] = []
     cost, result, nudged = 0.0, None, False
     for _ in range(MAX_TURNS):
         resp = client.beta.messages.create(
-            model=model, max_tokens=16000, system=SYSTEM, tools=tools, messages=messages,
+            model=model, max_tokens=16000, system=system, tools=tools, messages=messages,
             output_config={"effort": "medium"}, betas=[FALLBACK_BETA], fallbacks="default")
         cost += _cost(model, resp.usage)
         for b in resp.content:
@@ -224,12 +254,20 @@ def research_org(store: Store, org: m.Organisation, client, model: str = DEFAULT
         ok = f.get("attribute") in ATTRIBUTES and u and (u in allowed or u.split("?")[0] in allowed_noquery) \
             and str(f.get("value", "")).strip()
         (kept if ok else rejected).append(f)
+    answers = []
+    for a in result.get("answers", []) or []:
+        u = _norm_url(a.get("source_url", ""))
+        cited = bool(u) and (u in allowed or u.split("?")[0] in allowed_noquery)
+        answers.append({"question": str(a.get("question", ""))[:300], "answer": str(a.get("answer", ""))[:800],
+                        "source_url": a.get("source_url", "") if cited else "", "quote": str(a.get("quote", ""))[:400] if cited else "",
+                        "cited": cited, "unverified_url": a.get("source_url", "") if (u and not cited) else ""})
     return {"findings": kept, "rejected": rejected, "summary": result.get("summary"),
             "is_us_consumer_lender": result.get("is_us_consumer_lender"), "lender_category": result.get("lender_category"),
-            "cost": cost, "urls_seen": len(seen_urls)}
+            "answers": answers, "cost": cost, "urls_seen": len(seen_urls)}
 
 
-def write_findings(store: Store, org: m.Organisation, res: dict, model: str, job_run_id: int) -> m.ReviewItem | None:
+def write_findings(store: Store, org: m.Organisation, res: dict, model: str, job_run_id: int,
+                   request: "m.ResearchRequest | None" = None) -> m.ReviewItem | None:
     """Proposed claims plus one review item. Nothing here changes what the app shows until approved."""
     written = 0
     for f in res["findings"]:
@@ -239,18 +277,89 @@ def write_findings(store: Store, org: m.Organisation, res: dict, model: str, job
         if c:
             c.job_run_id = job_run_id
             written += 1
-    if not written and res.get("summary") is None:
+    if not written and res.get("summary") is None and not res.get("answers"):
         return None
     counts = {}
     for f in res["findings"]:
         counts[f["attribute"]] = counts.get(f["attribute"], 0) + 1
+    extra = {}
+    title = f"Research found {written} fact{'s' if written != 1 else ''}: {org.display_name}"
+    key = f"research:{org.id}:{job_run_id}"
+    if request is not None:
+        answered = sum(1 for a in res.get("answers", []) if a.get("cited"))
+        title = (f"Answers for #{request.review_item_id}: {org.display_name} ({answered} of {len(request.questions)} "
+                 f"answered with a source, {written} fact{'s' if written != 1 else ''})") if request.review_item_id else \
+                f"Follow-up research: {org.display_name} ({answered} of {len(request.questions)} answered)"
+        key = f"research:{org.id}:{job_run_id}:req{request.id}"
+        extra = {"request_id": request.id, "request_for": request.review_item_id, "mode": request.mode,
+                 "questions": list(request.questions), "answers": res.get("answers", []),
+                 "requested_by": request.requested_by}
     return store.review(
-        "research", f"research:{org.id}:{job_run_id}", f"Research found {written} fact{'s' if written != 1 else ''}: {org.display_name}",
+        "research", key, title,
         [org.id], {"run": job_run_id, "model": model, "summary": res.get("summary"),
                    "is_us_consumer_lender": res.get("is_us_consumer_lender"),
                    "lender_category": res.get("lender_category"), "counts": counts,
                    "rejected_uncited": len(res["rejected"]), "cost_usd": round(res["cost"], 4),
-                   "reasons": [f"{n} × {a.replace('_', ' ')}" for a, n in sorted(counts.items())]})
+                   "reasons": [f"{n} × {a.replace('_', ' ')}" for a, n in sorted(counts.items())], **extra})
+
+
+# ---------------------------------------------------------------- research requests (the feedback loop)
+MAX_REQUESTS_PER_ITEM = 2       # a card can be sent back twice; after that a person decides
+MAX_QUESTIONS = 3
+MODES = ("profile", "ownership")
+
+
+class RequestRefused(ValueError):
+    pass
+
+
+def open_request(s, review_item_id: int) -> m.ResearchRequest | None:
+    return s.scalar(select(m.ResearchRequest).where(m.ResearchRequest.review_item_id == review_item_id,
+                                                    m.ResearchRequest.status.in_(("queued", "running"))))
+
+
+def ask(store: Store, org_id: int, questions: list[str], mode: str = "ownership", review_item: m.ReviewItem | None = None,
+        context: str | None = None, model: str | None = None) -> m.ResearchRequest:
+    """Queue a follow-up research pass with specific questions. The research job takes queued requests first."""
+    s = store.s
+    qs = [q.strip()[:300] for q in questions if q and q.strip()][:MAX_QUESTIONS]
+    if not qs:
+        raise RequestRefused("Give at least one question")
+    if mode not in MODES:
+        raise RequestRefused("mode must be profile or ownership")
+    org = store.org(org_id)
+    if org is None or org.lifecycle == "merged":
+        raise RequestRefused("No such organisation")
+    if review_item is not None:
+        if open_request(s, review_item.id):
+            raise RequestRefused("This card already has research in progress")
+        asked = s.scalar(select(func.count()).select_from(m.ResearchRequest)
+                         .where(m.ResearchRequest.review_item_id == review_item.id)) or 0
+        if asked >= MAX_REQUESTS_PER_ITEM:
+            raise RequestRefused(f"This card has already been sent back {asked} times; a person should decide it")
+    if model is not None and model not in PRICES:
+        raise RequestRefused("Unknown model")
+    req = m.ResearchRequest(organisation_id=org.id, mode=mode, questions=qs, context=(context or "")[:1000] or None,
+                            review_item_id=review_item.id if review_item is not None else None,
+                            requested_by=store.actor, model=model, status="queued", created_at=datetime.now(timezone.utc))
+    s.add(req)
+    s.flush()
+    store.audit("research.request", "research_request", req.id, None,
+                {"org": org.display_name, "questions": qs, "mode": mode,
+                 "review_item": review_item.id if review_item is not None else None})
+    return req
+
+
+def linked_answers(s, review_item_id: int) -> list[dict]:
+    """Answers that came back for a card, oldest first (for the card text and the inbox)."""
+    out = []
+    for req in s.scalars(select(m.ResearchRequest).where(m.ResearchRequest.review_item_id == review_item_id)
+                         .order_by(m.ResearchRequest.id)):
+        res_item = s.get(m.ReviewItem, req.result_item_id) if req.result_item_id else None
+        out.append({"request": req, "item": res_item,
+                    "answers": (res_item.payload or {}).get("answers", []) if res_item else [],
+                    "summary": (res_item.payload or {}).get("summary") if res_item else None})
+    return out
 
 
 def pilot_targets(s, n: int) -> list[m.Organisation]:
@@ -280,22 +389,38 @@ def research_batch(store: Store, n: int = 20, client=None, model: str = DEFAULT_
         if client is None:
             import anthropic
             client = anthropic.Anthropic()
-        orgs = [s.get(m.Organisation, i) for i in org_ids] if org_ids else pilot_targets(s, n)
+        if org_ids:
+            tasks = [(s.get(m.Organisation, i), None) for i in org_ids]
+        else:  # questions sent back by the manager or a person come first, then new companies
+            queued = list(s.scalars(select(m.ResearchRequest).where(m.ResearchRequest.status == "queued")
+                                    .order_by(m.ResearchRequest.id).limit(n)))
+            tasks = [(store.org(r.organisation_id), r) for r in queued]
+            busy = {o.id for o, _ in tasks}
+            tasks += [(o, None) for o in pilot_targets(s, n - len(tasks)) if o.id not in busy] if len(tasks) < n else []
+        out["requests"] = sum(1 for _, r in tasks if r is not None)
         last_error, repeats = None, 0
-        for org in orgs:
+        for org, req in tasks:
+            use_model = (req.model if req is not None and req.model in PRICES else model)
+            if req is not None:
+                req.status, req.job_run_id = "running", ctx.run.id
+                s.flush()
             try:
                 try:
-                    res = research_org(store, org, client, model, ctx.run.id)
+                    res = research_org(store, org, client, use_model, ctx.run.id, request=req)
                 except SearchFailed as first:
                     if "invalid_tool_input" not in str(first):
                         raise
                     log.warning("research for org %s: %s; retrying with the basic web tools", org.id, first)
-                    res = research_org(store, org, client, model, ctx.run.id, tools_variant="basic")
+                    res = research_org(store, org, client, use_model, ctx.run.id, tools_variant="basic", request=req)
                     res["retried_basic_tools"] = True
             except budget.BudgetExceeded:
+                if req is not None:
+                    req.status = "queued"  # try again when there is budget
                 raise
             except Exception as e:  # one company failing doesn't stop the batch...
                 msg = f"{type(e).__name__}: {e}"
+                if req is not None:
+                    req.status, req.error, req.done_at = "failed", msg[:500], datetime.now(timezone.utc)
                 log.error("research failed for org %s: %s", org.id, msg[:500])
                 ctx.error(f"{org.display_name}: {msg}", org_id=org.id)
                 out["errors"] += 1
@@ -307,7 +432,10 @@ def research_batch(store: Store, n: int = 20, client=None, model: str = DEFAULT_
                     break
                 continue
             last_error, repeats = None, 0
-            write_findings(store, org, res, model, ctx.run.id)
+            item = write_findings(store, org, res, use_model, ctx.run.id, request=req)
+            if req is not None:
+                req.status, req.done_at = "done", datetime.now(timezone.utc)
+                req.result_item_id = item.id if item is not None else None
             out["organisations"] += 1
             out["retried_basic_tools"] = out.get("retried_basic_tools", 0) + bool(res.get("retried_basic_tools"))
             out["facts_proposed"] += len(res["findings"])
