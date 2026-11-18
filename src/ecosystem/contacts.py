@@ -42,6 +42,11 @@ TITLE_RULES = [
     (r"servicing|origination", 40, "servicer_acquisition"),
 ]
 SENIOR = {"executive": 30, "senior": 15}
+# titles that are never the right first contact, and roles outside the US
+EXCLUDE_TITLE = re.compile(r"technolog|engineer|developer|software|\bit\b|information|data|security|project|product "
+                           r"manag|analyst|recruit|talent|human resources|\bhr\b|people|finance|accounting|"
+                           r"controller|treasur|legal|counsel|attorney|risk|collections|customer service|support|"
+                           r"\b(?:uk|emea|europe|apac|canada|australia|brazil|mexico|india|latam)\b", re.I)
 GENERIC_LOCAL = re.compile(r"^(info|support|help|hello|contact|admin|sales|service|customerservice|cs|team|office|"
                            r"marketing|privacy|legal|compliance|jobs|careers|hr|billing|noreply|no-reply)\b", re.I)
 
@@ -77,12 +82,12 @@ LIMIT :limit
 
 def rank_title(title: str | None, seniority: str | None = None) -> tuple[int, str]:
     t = (title or "").lower()
+    if not t or EXCLUDE_TITLE.search(t):
+        return 0, "other"
     for pattern, rank, cat in TITLE_RULES:
         if re.search(pattern, t):
             return rank + SENIOR.get(seniority or "", 0), cat
-    if seniority == "executive":
-        return 50, "ceo_gm"
-    return 0, "other"
+    return 0, "other"  # seniority alone is not enough: the title has to say what they do
 
 
 def pick(emails: list[dict], n: int = PER_ORG) -> list[dict]:
@@ -95,7 +100,10 @@ def pick(emails: list[dict], n: int = PER_ORG) -> list[dict]:
         if ((e.get("verification") or {}).get("status")) == "invalid":
             continue
         name = " ".join(x for x in (e.get("first_name"), e.get("last_name")) if x).strip()
-        if not name:
+        if not name or not e.get("last_name"):
+            continue
+        label = addr.split("@")[1].split(".")[0]
+        if (e.get("first_name") or "").lower() in label:  # "rise@risecredit.com": a company inbox, not a person
             continue
         rank, cat = rank_title(e.get("position"), e.get("seniority"))
         if rank <= 0:

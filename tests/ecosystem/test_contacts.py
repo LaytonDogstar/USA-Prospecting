@@ -45,6 +45,10 @@ def _prospect(store, name="Wren Loans", domain="wrenloans.example", score=72):
 def test_rank_and_pick_drop_generic_and_irrelevant():
     assert rank_title("Director of Affiliate Partnerships")[1] == "affiliate_partnerships"
     assert rank_title("Software Engineer")[0] == 0
+    assert rank_title("Vice President of Technology", "executive")[0] == 0
+    assert rank_title("UK Managing Director")[0] == 0
+    assert rank_title("Director of Operations", "executive")[0] == 0
+    assert pick([_email("wren@wrenloans.example", "Wren", "Ops", "Marketing Director")]) == []
     got = pick([
         _email("info@wrenloans.example", "Info", "Desk", "Marketing"),
         _email("ann.vole@wrenloans.example", "Ann", "Vole", "Software Engineer"),
