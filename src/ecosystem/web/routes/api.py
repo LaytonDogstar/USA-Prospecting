@@ -82,3 +82,22 @@ def post_notification(level: str = Form(...), category: str = Form("daily_review
         raise HTTPException(400, str(e))
     store_for(db, user).audit("notification.add", "notification", n.id, None, {"title": n.title, "level": n.level})
     return {"id": n.id}
+
+
+@router.get("/notifications")
+def list_notifications(db: Session = Depends(get_db), user=Depends(current_user)):
+    notify.auto_resolve(db)
+    rows = db.scalars(select(m.Notification).where(notify.OPEN).order_by(m.Notification.created_at.desc()))
+    return {"open": [{"id": n.id, "level": n.level, "category": n.category, "title": n.title, "body": n.body,
+                      "link": n.link, "key": n.dedupe_key, "source": n.source, "created_at": n.created_at}
+                     for n in rows]}
+
+
+@router.post("/notifications/{nid}/resolve")
+def resolve_notification(nid: int, note: str = Form(""), db: Session = Depends(get_db), user=Depends(admin_user)):
+    n = db.get(m.Notification, nid)
+    if n is None:
+        raise HTTPException(404, "No such notification")
+    notify.resolve(db, n, user.username, note)
+    store_for(db, user).audit("notification.resolve", "notification", n.id, None, {"title": n.title, "note": note})
+    return {"id": n.id, "resolved": True}

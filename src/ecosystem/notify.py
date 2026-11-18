@@ -5,6 +5,7 @@ waiting) and by the daily Claude review (its report and the items that need the 
 Idempotent through dedupe_key: raising the same notice again updates it, and makes it unread again only if what it
 says changed. Nothing here sends anything outside the app.
 """
+import re
 from calendar import monthrange
 from datetime import datetime, timezone
 
@@ -38,16 +39,71 @@ def add(s, category: str, level: str, title: str, body: str | None = None, link:
     return n
 
 
+OPEN = m.Notification.resolved_at.is_(None)
+
+
 def unread(s, username: str, limit: int = 100) -> list[m.Notification]:
     order = [case({lv: i for i, lv in enumerate(LEVELS)}, value=m.Notification.level, else_=len(LEVELS)),
              m.Notification.created_at.desc()]
-    return list(s.scalars(select(m.Notification).where(~(literal(username) == any_(m.Notification.read_by)))
+    return list(s.scalars(select(m.Notification).where(OPEN, ~(literal(username) == any_(m.Notification.read_by)))
                           .order_by(*order).limit(limit)))
 
 
 def unread_count(s, username: str) -> int:
     return s.scalar(select(func.count()).select_from(m.Notification)
-                    .where(~(literal(username) == any_(m.Notification.read_by)))) or 0
+                    .where(OPEN, ~(literal(username) == any_(m.Notification.read_by)))) or 0
+
+
+def resolve(s, n: m.Notification, by: str, note: str) -> None:
+    if n.resolved_at is None:
+        n.resolved_at, n.resolved_by, n.resolution = datetime.now(timezone.utc), by, (note or "")[:500] or None
+
+
+def _item_ids(n: m.Notification) -> set[int]:
+    """Review items a notice is about: '#item-N' in its link, and the numbers after the date in a needs key."""
+    ids = set()
+    if n.link:
+        ids |= {int(x) for x in re.findall(r"#item-(\d+)", n.link)}
+    if n.dedupe_key and ":needs:" in f":{n.dedupe_key}":
+        tail = re.sub(r"\d{4}-\d{2}-\d{2}", "", n.dedupe_key.split("needs:", 1)[1])
+        ids |= {int(x) for x in re.findall(r"\d+", tail)}
+    return ids
+
+
+def auto_resolve(s) -> int:
+    """Close notices that no longer need anyone: the question's cards are decided, a newer summary or daily report
+    replaced it, or the job has since run cleanly. Nothing is deleted; resolved notices stay listed as resolved."""
+    now = datetime.now(timezone.utc)
+    done = 0
+    rows = list(s.scalars(select(m.Notification).where(OPEN).order_by(m.Notification.created_at.desc())))
+    latest_seen: dict[str, bool] = {}
+    for n in rows:
+        key = n.dedupe_key or ""
+        family = ("review-summary" if key.startswith("review:") else
+                  f"report:{n.source}" if ":report:" in f":{key}" else None)
+        if family:  # keep only the newest summary / daily report
+            if latest_seen.get(family):
+                resolve(s, n, "system", "replaced by a newer one")
+                done += 1
+            latest_seen[family] = True
+            continue
+        ids = _item_ids(n)
+        if ids and n.level == "action":
+            open_left = s.scalar(select(func.count()).select_from(m.ReviewItem)
+                                 .where(m.ReviewItem.id.in_(ids), m.ReviewItem.status == "open"))
+            if not open_left:
+                resolve(s, n, "system", "the review items it asked about have been decided")
+                done += 1
+                continue
+        if key.startswith("job:"):
+            job = key.split(":")[1]
+            later = s.scalar(select(m.JobRun).where(m.JobRun.job == job, m.JobRun.started_at > n.created_at,
+                                                    m.JobRun.status == "done").order_by(m.JobRun.id.desc()))
+            if later is not None and not (later.errors or []):
+                resolve(s, n, "system", f"{JOB_LABELS.get(job, job)} has since run cleanly")
+                done += 1
+    s.flush()
+    return done
 
 
 def mark_read(s, username: str, ids: list[int] | None = None) -> int:
@@ -97,6 +153,11 @@ def budget_check(s, now: datetime | None = None) -> None:
         forecast = used / elapsed * days_in_month
         fmt = (lambda v: f"${v:,.2f}") if b["unit"] == "usd" else (lambda v: f"{v:,.0f} units")
         name = b["provider"].capitalize()
+        if not (used >= limit * 0.8 or forecast > limit):  # no longer a worry (e.g. the budget was raised)
+            old = s.scalar(select(m.Notification).where(m.Notification.dedupe_key == f"budget:{b['provider']}:{month}", OPEN))
+            if old is not None:
+                resolve(s, old, "system", "the budget now covers the month at this pace")
+            continue
         if used >= limit * 0.8 or forecast > limit:
             run_out = now.day + (limit - used) / max(used / elapsed, 1e-9)
             when = f"around {min(int(run_out), days_in_month)} {now.strftime('%b')}" if used < limit else "now"
@@ -127,3 +188,4 @@ def review_summary(s) -> None:
 def daily(s) -> None:
     budget_check(s)
     review_summary(s)
+    auto_resolve(s)

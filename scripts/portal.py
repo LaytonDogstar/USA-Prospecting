@@ -22,7 +22,7 @@ import sys
 import httpx
 
 URL = os.environ.get("ECOSYSTEM_URL", "https://usa-prospecting-production.up.railway.app").rstrip("/")
-ACTION = re.compile(r"^(merge:\d+|link:\d+:\d+|approve|reject|screen)$")
+ACTION = re.compile(r"^(merge:\d+|link:\d+:\d+|approve|reject|screen|related)$")
 
 
 class Portal:
@@ -71,6 +71,8 @@ def main():
     p = sub.add_parser("ask-org"); p.add_argument("org", type=int)
     p.add_argument("--question", action="append", required=True)
     p.add_argument("--mode", default="ownership", choices=["ownership", "profile"])
+    sub.add_parser("notifications")
+    p = sub.add_parser("resolve"); p.add_argument("nid", type=int); p.add_argument("--note", required=True)
     p = sub.add_parser("run-now"); p.add_argument("job")
     a = ap.parse_args()
     pt = Portal()
@@ -82,7 +84,7 @@ def main():
         out = pt.get("/api/review", kind=a.kind, limit=a.limit, offset=a.offset)
     elif a.cmd == "decide":
         if not ACTION.match(a.action):
-            sys.exit("action must be merge:<id>, link:<parent>:<child>, approve, reject or screen")
+            sys.exit("action must be merge:<id>, link:<parent>:<child>, related, approve, reject or screen")
         r = pt.post(f"/review/{a.item}/decide", {"action": a.action, "note": a.note})
         out = {"item": a.item, "action": a.action, "status": r.status_code}
     elif a.cmd == "notify":
@@ -96,6 +98,10 @@ def main():
     elif a.cmd == "ask-org":
         r = pt.post(f"/org/{a.org}/ask", {"questions": "\n".join(a.question), "mode": a.mode})
         out = {"org": a.org, "sent": r.status_code == 303}
+    elif a.cmd == "notifications":
+        out = pt.get("/api/notifications")
+    elif a.cmd == "resolve":
+        out = pt.post(f"/api/notifications/{a.nid}/resolve", {"note": a.note}).json()
     elif a.cmd == "undo-screen":
         r = pt.post(f"/review/{a.item}/undo-screen", {"note": a.note})
         out = {"item": a.item, "undone": r.status_code == 303}

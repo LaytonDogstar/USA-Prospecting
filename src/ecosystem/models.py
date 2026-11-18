@@ -388,6 +388,9 @@ class Notification(Base):
     source: Mapped[str] = mapped_column(Text, default="system")
     dedupe_key: Mapped[str | None] = mapped_column(Text, unique=True)
     read_by: Mapped[list] = mapped_column(ARRAY(Text), default=list)
+    resolved_at: Mapped[datetime | None] = mapped_column(TS)          # closed for everyone (dealt with or superseded)
+    resolved_by: Mapped[str | None] = mapped_column(Text)
+    resolution: Mapped[str | None] = mapped_column(Text)
 
 
 # ---------------------------------------------------------------- review, audit, users

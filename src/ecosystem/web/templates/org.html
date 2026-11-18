@@ -29,6 +29,7 @@
 {% elif flags and not cstatus %}<div class="warnbox">{{ flags | length }} compliance flag{{ 's' if flags | length != 1 }} found and no compliance status set yet. <a href="#compliance">Review</a></div>{% endif %}
 {% set pm = reviews | selectattr('kind', 'equalto', 'possible_match') | list %}
 {% if pm and not ours %}<div class="badbox"><b>May already be a partner.</b> {{ pm | length }} open possible match{{ 'es' if pm | length != 1 }} with our relationships. Resolve in Review before contacting them.</div>{% endif %}
+{% if related and not ours %}<div class="badbox"><b>Related to our partner {{ related.partner if related is mapping else related }}.</b> A sister brand, servicer or company in the same group. Check with the account owner before contacting them.{% if related is mapping and related.note %} <span class="muted">{{ related.note }}</span>{% endif %}</div>{% endif %}
 {% if reviews %}<div class="warnbox">Open review items: {% for it in reviews %}<a href="/review?kind={{ it.kind }}#item-{{ it.id }}">{{ it.title }}</a>{{ '; ' if not loop.last }}{% endfor %}</div>{% endif %}
 
 <div class="grid g2">

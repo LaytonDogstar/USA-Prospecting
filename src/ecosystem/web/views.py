@@ -35,8 +35,9 @@ SELECT o.id, o.display_name, o.tier, o.lifecycle, o.kind, p.id AS parent_id, p.d
        (SELECT hostname FROM domain d WHERE d.organisation_id = o.id ORDER BY d.is_primary DESC, d.id LIMIT 1) AS domain,
        (SELECT b.name FROM brand b LEFT JOIN domain d ON d.brand_id = b.id
          WHERE b.organisation_id = o.id ORDER BY d.is_primary IS TRUE DESC, b.id LIMIT 1) AS brand,
-       EXISTS (SELECT 1 FROM review_item ri WHERE ri.status = 'open' AND ri.kind = 'possible_match'
-               AND o.id = ANY(ri.entity_ids)) AS pending_match
+       (EXISTS (SELECT 1 FROM review_item ri WHERE ri.status = 'open' AND ri.kind = 'possible_match'
+                       AND o.id = ANY(ri.entity_ids))
+                OR EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = o.id AND ec.attribute = 'partner_related')) AS pending_match
 FROM organisation o
 LEFT JOIN organisation p ON p.id = o.parent_id
 LEFT JOIN latest_score sc ON sc.entity_id = o.id AND sc.score_type = :score_type

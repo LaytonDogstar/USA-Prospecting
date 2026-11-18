@@ -149,6 +149,30 @@ def decide(store: Store, it: m.ReviewItem, action: str, note: str = "") -> str:
             child_org.parent_id = store.org(parent).id
         store.audit("organisation.link", "organisation", child_org.id, None, {"parent": pname, "note": note})
         it.status, done = "approved", f"Linked: {pname} owns {child_org.display_name}."
+    elif action == "related":
+        # different companies, but tied to a partner (sister brand, servicer, same tribe or group): close the card and
+        # keep the non-partner side held back from prospecting with a standing 'partner_related' fact
+        if it.kind not in ("possible_match", "dedup") or len(ids) != 2:
+            raise DecisionError("'Related' is for a pair of organisations")
+        orgs = [store.org(i) for i in ids]
+        partners = [o for o in orgs
+                    if s.scalar(select(m.OurRelationship.id).where(m.OurRelationship.organisation_id == o.id))]
+        src = m.Source(source_type="manual", title=f"Review #{it.id} decided by {store.actor}",
+                       retrieved_at=datetime.now(timezone.utc))
+        s.add(src)
+        s.flush()
+        held = []
+        for o in orgs:
+            if o in partners:
+                continue
+            for pt in (partners or [x for x in orgs if x is not o]):
+                store.claim(o.id, "partner_related", {"partner": pt.display_name, "partner_id": pt.id,
+                                                      "note": note or None}, src, confidence="high",
+                            method=f"review:{store.actor}")
+            held.append(o.display_name)
+        store.audit("organisation.partner_related", "review_item", it.id, None, {"held": held, "note": note})
+        it.status, done = "approved", (f"Kept {', '.join(held)} held back as related to "
+                                       f"{', '.join(p.display_name for p in partners) or 'the other record'}.")
     elif action == "approve" and it.kind == "research":
         from .matching import possible_match_sweep, shared_key_suggestions
         from .research import apply_research

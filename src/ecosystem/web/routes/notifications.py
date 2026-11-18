@@ -6,17 +6,28 @@ from sqlalchemy import any_, literal, select
 from sqlalchemy.orm import Session
 
 from ... import models as m, notify
-from ..deps import check_csrf, current_user, get_db, render
+from ..deps import admin_user, check_csrf, current_user, get_db, render
 
 router = APIRouter()
 
 
 @router.get("/notifications")
 def notifications(request: Request, db: Session = Depends(get_db), user=Depends(current_user)):
+    notify.auto_resolve(db)
     unread = notify.unread(db, user.username)
-    earlier = list(db.scalars(select(m.Notification).where(literal(user.username) == any_(m.Notification.read_by))
+    earlier = list(db.scalars(select(m.Notification).where(notify.OPEN, literal(user.username) == any_(m.Notification.read_by))
                               .order_by(m.Notification.created_at.desc()).limit(50)))
-    return render(request, "notifications.html", user, unread=unread, earlier=earlier)
+    resolved = list(db.scalars(select(m.Notification).where(m.Notification.resolved_at.is_not(None))
+                               .order_by(m.Notification.resolved_at.desc()).limit(30)))
+    return render(request, "notifications.html", user, unread=unread, earlier=earlier, resolved=resolved)
+
+
+@router.post("/notifications/{nid}/resolve")
+def resolve_one(nid: int, request: Request, note: str = Form(""), db: Session = Depends(get_db), user=Depends(admin_user)):
+    n = db.get(m.Notification, nid)
+    if n is not None:
+        notify.resolve(db, n, user.username, note or "marked resolved")
+    return RedirectResponse("/notifications", status_code=303)
 
 
 @router.post("/notifications/read")

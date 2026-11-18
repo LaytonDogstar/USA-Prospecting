@@ -261,3 +261,32 @@ def urls(text: str | None) -> list[str]:
     if not text:
         return []
     return [u.rstrip(".,);") for u in re.findall(r"https?://\S+", str(text))]
+
+
+_SENTENCE_WORDS = re.compile(r"\b(is|was|are|were|acquired|owns|owned|managed|manages|include[sd]?|which|that|since|"
+                             r"formerly|through|via|operates|operated|controlled|majority|minority|stake|each|separate|"
+                             r"independent|founder|ceo|individual|family-owned|privately)\b", re.I)
+
+
+def group_name(text: str | None) -> str | None:
+    """A company or tribe name from researched owner text, or None when it is a sentence rather than a name.
+    'Iipay Nation of Santa Ysabel; sister brands include X' -> 'Iipay Nation of Santa Ysabel'
+    'Pomo Gold, an entity of the Elem Indian Colony' -> 'Pomo Gold'
+    'Owned by Acme Holdings, Inc.' -> 'Acme Holdings, Inc.'
+    'ECN Capital Corp acquired a majority stake in August 2024' -> None"""
+    if not text:
+        return None
+    t = strip_hedge(str(text))
+    t = re.split(r"[;(\n]|\s[-–—]\s", t)[0]
+    t = re.split(r",\s+(?:an?|the)\s|\s+(?:is|was|are|which|that)\s", t, maxsplit=1)[0]
+    t = re.sub(r"^(?:(?:wholly|majority|indirectly|ultimately)\s+)?(?:owned|operated|controlled|managed)\s+by\s+|"
+               r"^(?:a\s+)?(?:subsidiary|division|brand|unit|part)\s+of\s+", "", t.strip(), flags=re.I)
+    t = t.strip(" ,:")
+    words = t.split()
+    if not 1 <= len(words) <= 8 or _SENTENCE_WORDS.search(t) or not re.match(r"[A-Z0-9]", t):
+        return None
+    return t
+
+
+def looks_like_sentence(name: str) -> bool:
+    return bool(name) and (";" in name or len(name.split()) > 8 or bool(_SENTENCE_WORDS.search(name)))

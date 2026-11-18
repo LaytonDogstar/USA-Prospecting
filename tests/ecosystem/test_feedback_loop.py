@@ -126,3 +126,37 @@ def test_manager_cannot_send_back_past_the_limit(session):
                     "investigate": "left", "mode": "ownership"}])
     run_assistant(store, client=mgr)
     assert it.payload["assistant"]["choice"] == "unsure"  # not an allowed choice any more
+
+
+def test_related_keeps_it_held_back_and_closes_the_card(session):
+    from ecosystem.decisions import decide
+    from ecosystem.web.views import org_table
+    store = Store(session, actor="t")
+    legal, brand, it = _match(store)
+    sister = store.new_org("Heron Sister Lending")
+    session.flush()
+    it2 = store.review("possible_match", "pm:sister", "Sister may be buyer Heron Cash", [sister.id, brand.id], {"reasons": []})
+    decide(store, it2, "related", "same tribe, separate brand")
+    assert it2.status == "approved"
+    claim = session.scalar(select(m.Claim).where(m.Claim.entity_id == sister.id, m.Claim.attribute == "partner_related"))
+    assert claim.value["partner"] == "Heron Cash"
+    assert session.scalar(select(m.Claim).where(m.Claim.entity_id == brand.id, m.Claim.attribute == "partner_related")) is None
+
+
+def test_sentence_owner_text_never_becomes_a_company(session):
+    from ecosystem import parsing as p
+    from ecosystem.research import cleanup_sentence_orgs
+    assert p.group_name("ECN Capital Corp acquired a majority stake in August 2024") is None
+    assert p.group_name("Iipay Nation of Santa Ysabel; sister brands include X") == "Iipay Nation of Santa Ysabel"
+    assert p.group_name("Owned by Acme Holdings, Inc.") == "Acme Holdings, Inc."
+    store = Store(session, actor="upkeep")
+    junk = store.new_org("Acquired by an investor group led by somebody in 2023", kind="operator_group")
+    named = store.new_org("Pomo Gold, an entity of the Elem Indian Colony", kind="operator_group")
+    child = store.new_org("Child Lending")
+    session.flush()
+    child.parent_id = junk.id
+    it = store.review("possible_match", "pm:junk", "junk", [junk.id, child.id], {"reasons": []})
+    out = cleanup_sentence_orgs(store)
+    assert out == {"renamed": 1, "duplicates": 0, "screened_out": 1}
+    assert junk.lifecycle == "screened_out" and child.parent_id is None and it.status == "rejected"
+    assert named.display_name == "Pomo Gold"

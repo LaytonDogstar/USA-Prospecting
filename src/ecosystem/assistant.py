@@ -39,6 +39,8 @@ CHOICES = {  # what the model may answer → (needs a pair, meaning shown to the
     "merge_keep_right": (True, "Same company: merge, keeping the RIGHT record"),
     "left_owns_right": (True, "Different records, but LEFT is the owner / legal entity behind RIGHT (a brand)"),
     "right_owns_left": (True, "Different records, but RIGHT is the owner / legal entity behind LEFT (a brand)"),
+    "related_hold": (True, "Different companies, but tied to our partner (sister brand of the same tribe or group, its "
+                           "servicer, or likely the same team): close the card and keep it held back from prospecting"),
     "not_related": (True, "Not the same company and not owner/brand: clear the flag"),
     "accept": (False, "Accept the research facts / approve the item"),
     "screen_out": (False, "Accept the research facts and screen it out: not a US consumer lender"),
@@ -47,7 +49,7 @@ CHOICES = {  # what the model may answer → (needs a pair, meaning shown to the
     "unsure": (False, "Not enough evidence on the card: a person should look"),
 }
 LABELS = {"merge_keep_left": "Same: keep {L}", "merge_keep_right": "Same: keep {R}", "left_owns_right": "{L} owns {R}",
-          "right_owns_left": "{R} owns {L}", "not_related": "Not related", "accept": "Accept",
+          "right_owns_left": "{R} owns {L}", "related_hold": "Related: keep held back", "not_related": "Not related", "accept": "Accept",
           "screen_out": "Accept and screen out", "reject": "Reject", "unsure": "Needs a person",
           "ask_research": "Sent back for research"}
 
@@ -58,7 +60,8 @@ What the decisions mean:
 - Possible match: an organisation in our data may be one of our existing partners (shown with a relationship).
   Getting this wrong matters: if it is really the partner, a salesperson might cold-call an existing client.
   When a CFPB legal entity (e.g. "X Holdings, LLC" or "X LLC dba Brand") sits next to a trading brand, the usual
-  answer is "owns", not a merge.
+  answer is "owns", not a merge. A sister brand under the same tribe or group as our partner, or the partner's
+  servicer, is "related_hold" (stays held back), not "not_related".
 - Duplicates: two records that may be the same company.
 - Research: facts a researcher found, each with a quote and the page it came from. Accept when the quotes support
   the values; screen out when it is clearly not a US consumer lender (an app, a bank, a marketplace); reject when
@@ -159,7 +162,8 @@ def card_text(s, it: m.ReviewItem, summ: dict) -> str:
 def allowed_choices(it: m.ReviewItem, can_ask: bool = True) -> set[str]:
     pair = len(it.entity_ids) == 2 and it.kind in ("possible_match", "dedup")
     if pair:
-        out = {"merge_keep_left", "merge_keep_right", "left_owns_right", "right_owns_left", "not_related", "unsure"}
+        out = {"merge_keep_left", "merge_keep_right", "left_owns_right", "right_owns_left", "related_hold", "not_related",
+               "unsure"}
     elif it.kind == "research":
         out = {"accept", "screen_out", "reject", "unsure"}
     else:
@@ -179,7 +183,7 @@ def to_action(it: m.ReviewItem, choice: str) -> str | None:
     ids = list(it.entity_ids)
     return {"merge_keep_left": lambda: f"merge:{ids[0]}", "merge_keep_right": lambda: f"merge:{ids[1]}",
             "left_owns_right": lambda: f"link:{ids[0]}:{ids[1]}", "right_owns_left": lambda: f"link:{ids[1]}:{ids[0]}",
-            "not_related": lambda: "reject", "accept": lambda: "approve", "screen_out": lambda: "screen",
+            "not_related": lambda: "reject", "related_hold": lambda: "related", "accept": lambda: "approve", "screen_out": lambda: "screen",
             "reject": lambda: "reject", "unsure": lambda: None, "ask_research": lambda: None}[choice]()
 
 

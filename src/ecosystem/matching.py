@@ -17,7 +17,7 @@ def _all_keys(store: Store, ids: set[int] | None = None) -> dict[int, dict]:
     """Matching keys for many organisations in a handful of queries (one query per organisation was ~3,000
     round trips, which made accepting a review card slow on a remote database)."""
     s = store.s
-    q_orgs = select(m.Organisation.id, m.Organisation.parent_id).where(m.Organisation.lifecycle != "merged")
+    q_orgs = select(m.Organisation.id, m.Organisation.parent_id).where(m.Organisation.lifecycle.not_in(("merged", "screened_out")))
     if ids is not None:
         q_orgs = q_orgs.where(m.Organisation.id.in_(ids))
     keys = {oid: {"names": set(), "domains": set(), "stems": set(), "groups": {pid} - {None}, "tribes": set()}

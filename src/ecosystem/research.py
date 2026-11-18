@@ -690,3 +690,50 @@ def backfill_state_counts(store: Store) -> int:
             store.claim(eid, "states_count", st["count"], s.get(m.Source, src_id), confidence=conf, method=p.PARSE_METHOD)
             n += 1
     return n
+
+
+def cleanup_sentence_orgs(store: Store) -> dict:
+    """Owner / tribe records whose 'name' is a sentence from research (made before group_name existed).
+    A clean name inside it: rename the record, or raise a duplicate card if that name already exists (the safe rule
+    merges identical names). No name at all and no facts of its own: screen it out, detach its children and close
+    the review cards that only exist because of it."""
+    s = store.s
+    out = {"renamed": 0, "duplicates": 0, "screened_out": 0}
+    rows = list(s.scalars(select(m.Organisation).where(m.Organisation.kind.in_(("operator_group", "tribe")),
+                                                       m.Organisation.lifecycle.not_in(("merged", "screened_out")))))
+    for org in rows:
+        if not p.looks_like_sentence(org.display_name):
+            continue
+        clean = p.group_name(org.display_name)
+        if clean:
+            from .normalise import compact
+            twin = s.scalar(select(m.Organisation).join(m.NameAlias, m.NameAlias.entity_id == m.Organisation.id).where(
+                m.NameAlias.alias_compact == compact(clean), m.Organisation.id != org.id,
+                m.Organisation.lifecycle.not_in(("merged", "screened_out"))).limit(1))
+            if twin is not None:
+                store.review("dedup", f"dedup:{min(org.id, twin.id)}:{max(org.id, twin.id)}",
+                             f"Same organisation? {twin.display_name} / {org.display_name}", [twin.id, org.id],
+                             {"reasons": [f"name similarity 1.00 (cleaned from research text: '{clean}')"]})
+                out["duplicates"] += 1
+            else:
+                before = org.display_name
+                store.add_alias(org.id, before)
+                org.display_name = clean
+                store.add_alias(org.id, clean)
+                store.audit("organisation.rename", "organisation", org.id, {"name": before}, {"name": clean,
+                            "why": "research text cleaned to a company name"})
+                out["renamed"] += 1
+            continue
+        own_facts = s.scalar(select(func.count()).select_from(m.Claim).where(
+            m.Claim.entity_id == org.id, m.Claim.method.not_like("import:%"), m.Claim.attribute.not_in(("name",))))
+        if own_facts:
+            continue  # it carries real facts: a person should look (it stays as it is)
+        screen_out(store, org, f"Not a company: text from research ('{org.display_name[:120]}')")
+        for child in s.scalars(select(m.Organisation).where(m.Organisation.parent_id == org.id)):
+            child.parent_id = None
+        for it in s.scalars(select(m.ReviewItem).where(m.ReviewItem.status == "open", m.ReviewItem.entity_ids.any(org.id))):
+            it.status, it.decided_by, it.decided_at = "rejected", store.actor, datetime.now(timezone.utc)
+            it.note = "closed automatically: one side was research text, not a company"
+        out["screened_out"] += 1
+    s.flush()
+    return out

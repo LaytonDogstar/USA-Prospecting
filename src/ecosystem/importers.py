@@ -102,7 +102,8 @@ def link_group(store: Store, org: m.Organisation, text: str | None, src: m.Sourc
     if not text:
         return None
     c = store.claim(org.id, attribute, text, src, confidence=confidence, method=METHOD)
-    name = p.strip_hedge(text)
+    # researched owner text is often a sentence; only a real name becomes an organisation (the text stays as a fact)
+    name = p.group_name(text) if attribute.endswith("_research") else p.strip_hedge(text)
     if not name or compact(name) in {compact(a) for a in store.org_names(org.id)}:
         if _group_kind(name or "") == "tribe" and org.kind == "company":
             org.kind = "tribe"

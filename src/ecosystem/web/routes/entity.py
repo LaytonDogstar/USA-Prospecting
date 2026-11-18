@@ -96,7 +96,8 @@ def org_page(org_id: int, request: Request, db: Session = Depends(get_db), user=
                                    .order_by(m.OurRelationshipHistory.changed_at.desc()))) if ours else []
     reviews = list(db.scalars(select(m.ReviewItem).where(m.ReviewItem.status == "open", m.ReviewItem.entity_ids.contains([oid]))))
     timeline = _timeline(db, oid, ours.id if ours else None)
-    return render(request, "org.html", user, org=org, names=names, parent=db.get(m.Organisation, org.parent_id) if org.parent_id else None,
+    related = current.get("partner_related")
+    return render(request, "org.html", user, org=org, names=names, related=related.value if related else None, parent=db.get(m.Organisation, org.parent_id) if org.parent_id else None,
                   profile=profile, other_facts=other_facts, brands=brands, domains=domains, declared=declared, aliases=aliases,
                   roles=roles, role_labels=ROLE_LABELS, states=states, metrics=metrics, metric_labels=METRIC_LABELS,
                   edges_out=edges_out, edges_in=edges_in, children=children, merged_from=merged_from, scores=scores,

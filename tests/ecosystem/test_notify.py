@@ -44,3 +44,21 @@ def test_review_summary_puts_partner_matches_first(store):
     notify.review_summary(store.s)
     n = notify.unread(store.s, "boss")[0]
     assert n.title == "2 review items waiting, 1 possible partner matches" and n.link == "/review?kind=possible_match"
+
+
+def test_notices_close_themselves_when_dealt_with(store):
+    s = store.s
+    a, b = store.new_org("Alder Loans"), store.new_org("Alder Loan Co")
+    s.flush()
+    it = store.review("possible_match", "pm:x", "Alder", [a.id, b.id], {"reasons": []})
+    s.flush()
+    q = notify.add(s, "daily_review", "action", "Is Alder our partner?", link=f"/review?kind=possible_match#item-{it.id}",
+                   dedupe_key=f"claude:needs:2026-11-18:{it.id}")
+    old = notify.add(s, "review", "action", "3 waiting", dedupe_key="review:2026-11-17")
+    new = notify.add(s, "review", "action", "2 waiting", dedupe_key="review:2026-11-18")
+    notify.auto_resolve(s)
+    assert old.resolved_at and not new.resolved_at and not q.resolved_at
+    it.status = "approved"
+    notify.auto_resolve(s)
+    assert q.resolved_at and q.resolution.startswith("the review items")
+    assert notify.unread_count(s, "boss") == 1  # only the newest summary is left

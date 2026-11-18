@@ -12,6 +12,8 @@
   <div class="row">
     {% if n.link %}<form method="post" action="/notifications/read" class="inline">{{ csrf_field(csrf) }}<input type="hidden" name="nid" value="{{ n.id }}"><input type="hidden" name="go" value="{{ n.link }}"><button class="primary">Go there</button></form>{% endif %}
     {% if unread %}<form method="post" action="/notifications/read" class="inline">{{ csrf_field(csrf) }}<input type="hidden" name="nid" value="{{ n.id }}"><button>Done</button></form>{% endif %}
+    {% if user.role == 'admin' and not n.resolved_at %}<form method="post" action="/notifications/{{ n.id }}/resolve" class="inline">{{ csrf_field(csrf) }}<button title="Close it for everyone">Resolved</button></form>{% endif %}
+    {% if n.resolved_at %}<span class="meta">Resolved {{ n.resolved_at.strftime('%d %b') }} by {{ n.resolved_by }}{% if n.resolution %}: {{ n.resolution }}{% endif %}</span>{% endif %}
   </div>
 </div>
 {% endmacro %}
@@ -24,4 +26,6 @@
 </div>
 {% for n in unread %}{{ note(n, true) }}{% else %}<p class="muted">Nothing new. You're up to date.</p>{% endfor %}
 {% if earlier %}<h2 style="margin-top:24px">Earlier</h2>{% for n in earlier %}{{ note(n, false) }}{% endfor %}{% endif %}
+{% if resolved %}<details style="margin-top:24px"><summary class="muted">Resolved recently ({{ resolved | length }})</summary>
+  {% for n in resolved %}{{ note(n, false) }}{% endfor %}</details>{% endif %}
 {% endblock %}

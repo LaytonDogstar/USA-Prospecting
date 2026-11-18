@@ -104,6 +104,7 @@
       <button name="action" value="link:{{ a.id }}:{{ b.id }}" title="{{ a.display_name }} owns {{ b.display_name }}">Left owns right</button>
       <button name="action" value="link:{{ b.id }}:{{ a.id }}" title="{{ b.display_name }} owns {{ a.display_name }}">Right owns left</button>
       {% endif %}
+      <button name="action" value="related" title="Different companies, but tied to our partner (sister brand, servicer, same tribe or group): close this and keep it held back from prospecting">Related: keep held back</button>
       <button name="action" value="reject">Not related</button>
     {% elif it.kind == 'research' %}
       <button name="action" value="approve" class="primary">Accept these facts</button>
