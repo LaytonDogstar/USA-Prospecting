@@ -64,7 +64,11 @@ def _load(db):
                  WHERE b.organisation_id = o.id ORDER BY d.is_primary IS TRUE DESC, b.id LIMIT 1) AS brand,
                (EXISTS (SELECT 1 FROM review_item ri WHERE ri.status = 'open' AND ri.kind = 'possible_match'
                        AND o.id = ANY(ri.entity_ids))
-                OR EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = o.id AND ec.attribute = 'partner_related')) AS pending_match
+                OR EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = o.id AND ec.attribute = 'partner_related')
+                -- the owner of a partner's brand, or a brand a partner owns
+                OR EXISTS (SELECT 1 FROM organisation ch JOIN our_relationship oc ON oc.organisation_id = ch.id
+                           WHERE ch.parent_id = o.id)
+                OR EXISTS (SELECT 1 FROM our_relationship op WHERE op.organisation_id = o.parent_id)) AS pending_match
         FROM organisation o
         LEFT JOIN latest_score bv ON bv.entity_id = o.id AND bv.score_type = 'buyer_value'
         LEFT JOIN latest_score sv ON sv.entity_id = o.id AND sv.score_type = 'supply_value'

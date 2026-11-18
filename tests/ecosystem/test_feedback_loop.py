@@ -160,3 +160,15 @@ def test_sentence_owner_text_never_becomes_a_company(session):
     assert out == {"renamed": 1, "duplicates": 0, "screened_out": 1}
     assert junk.lifecycle == "screened_out" and child.parent_id is None and it.status == "rejected"
     assert named.display_name == "Pomo Gold"
+
+
+def test_owner_of_a_partner_brand_is_held_back(session):
+    from ecosystem.decisions import decide
+    from ecosystem.web.views import org_table
+    store = Store(session, actor="t")
+    legal, brand, it = _match(store)
+    store.role(legal.id, "lender_tribal", None)
+    decide(store, it, f"link:{legal.id}:{brand.id}", "terms name the LLC")
+    session.flush()
+    rows = [r for r in org_table(session, "lenders", {}, limit=None)[0] if r["id"] == legal.id]
+    assert len(rows) == 1 and rows[0]["pending_match"]  # the card is closed, but it owns a partner's brand
