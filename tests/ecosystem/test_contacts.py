@@ -135,3 +135,15 @@ def test_people_mode_research_uses_people_prompt(store):
     assert "decision-makers" in seen["system"] and "LinkedIn" in seen["system"]
     enum = seen["tools"][-1]["input_schema"]["properties"]["findings"]["items"]["properties"]["attribute"]["enum"]
     assert enum == ["person"]
+
+
+def test_person_with_email_claim_can_be_deleted(store):
+    from ecosystem.web.routes.entity import delete_person
+    org = _prospect(store)
+    find_contacts(store, client=FakeHunter({"wrenloans.example": [
+        _email("bo.teal@wrenloans.example", "Bo", "Teal", "VP Marketing")]}))
+    person = store.s.scalar(select(m.Person).where(m.Person.organisation_id == org.id))
+    req = NS(session={})
+    delete_person(person.id, req, reason="deletion request", db=store.s, user=NS(username="tester", role="admin"))
+    assert store.s.get(m.Person, person.id) is None
+    assert not store.s.scalars(select(m.Claim).where(m.Claim.entity_id == person.id)).all()

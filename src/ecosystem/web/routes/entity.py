@@ -288,6 +288,10 @@ def delete_person(person_id: int, request: Request, reason: str = Form(...), db:
     org_id = p.organisation_id
     store_for(db, user).audit("person.delete", "organisation", org_id, {"person": p.name}, {"note": reason.strip()})
     db.execute(m.NameAlias.__table__.delete().where(m.NameAlias.entity_id == p.id))
+    # the person's own claims (e.g. the email found by Hunter) hold personal data: they go with the person
+    claim_ids = select(m.Claim.id).where(m.Claim.entity_id == p.id)
+    db.execute(m.ClaimSource.__table__.delete().where(m.ClaimSource.claim_id.in_(claim_ids)))
+    db.execute(m.Claim.__table__.delete().where(m.Claim.entity_id == p.id))
     db.delete(p)
     db.flush()
     db.execute(m.Entity.__table__.delete().where(m.Entity.id == person_id))
