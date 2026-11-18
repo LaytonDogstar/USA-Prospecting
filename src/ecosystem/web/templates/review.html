@@ -121,7 +121,7 @@
       <textarea name="questions" rows="3" required placeholder="One question per line (up to 3), e.g.&#10;Which company is named as the lender in this brand's terms?&#10;Is this brand on the partner list of any of our buyers?"></textarea>
       <div class="row">
         {% if ids | length == 2 %}<label>Investigate <select name="investigate"><option value="left">left</option><option value="right">right</option></select></label>{% endif %}
-        <label>Focus <select name="mode"><option value="ownership">owners, brands, banks, partner lists</option><option value="profile">what it does, loans, states, licences</option></select></label>
+        <label>Focus <select name="mode"><option value="ownership">owners, brands, banks, partner lists</option><option value="profile">what it does, loans, states, licences</option><option value="people">decision-makers (names and titles)</option></select></label>
         <button>Send to the researchers</button>
       </div>
     </form></details>{% endif %}

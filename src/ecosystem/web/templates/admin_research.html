@@ -11,11 +11,18 @@
   <table class="compact"><tbody>
     <tr><td>Anthropic (<span class="mono">ANTHROPIC_API_KEY</span>)</td><td>{% if keys.anthropic %}<span class="chip good">set</span>{% else %}<span class="chip warn">not set</span>{% endif %}</td></tr>
     <tr><td>Ahrefs (<span class="mono">AHREFS_API_KEY</span>)</td><td>{% if keys.ahrefs %}<span class="chip good">set</span>{% else %}<span class="chip warn">not set</span>{% endif %}</td></tr>
+    <tr><td>Hunter (<span class="mono">HUNTER_API_KEY</span>)</td><td>{% if keys.hunter %}<span class="chip good">set</span>{% else %}<span class="chip warn">not set</span>{% endif %}</td></tr>
   </tbody></table>
   <p class="small muted">Keys are set in Railway (USA-Prospecting service → Variables), never here, and are never shown. Saving a variable redeploys the app.</p>
   {% if keys.ahrefs %}
   <form method="post" action="/admin/research/ahrefs-plan" class="row">{{ csrf_field(csrf) }}<button>Check Ahrefs plan (free)</button></form>
   {% endif %}
+  {% if keys.hunter %}
+  <form method="post" action="/admin/research/hunter-account" class="row">{{ csrf_field(csrf) }}<button>Check Hunter account (free)</button></form>
+  {% endif %}
+  {% if hunter_account %}<table class="compact small"><tbody>
+    {% for k, v in hunter_account.items() %}<tr><td>{{ k | replace('_', ' ') }}</td><td>{{ v }}</td></tr>{% endfor %}
+  </tbody></table>{% endif %}
   {% if ahrefs_plan %}<table class="compact small"><tbody>
     {% for k, v in ahrefs_plan.items() %}<tr><td>{{ k | replace('_', ' ') }}</td><td>{{ v }}</td></tr>{% endfor %}
   </tbody></table>{% endif %}

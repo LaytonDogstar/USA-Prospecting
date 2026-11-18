@@ -1,4 +1,5 @@
 """Entity page, evidence drawer and source pages, plus the edits made from the entity page."""
+import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -97,7 +98,9 @@ def org_page(org_id: int, request: Request, db: Session = Depends(get_db), user=
     reviews = list(db.scalars(select(m.ReviewItem).where(m.ReviewItem.status == "open", m.ReviewItem.entity_ids.contains([oid]))))
     timeline = _timeline(db, oid, ours.id if ours else None)
     related = current.get("partner_related")
-    return render(request, "org.html", user, org=org, names=names, related=related.value if related else None, parent=db.get(m.Organisation, org.parent_id) if org.parent_id else None,
+    dnc = current.get("do_not_contact")
+    return render(request, "org.html", user, org=org, names=names, org_dnc=bool(dnc and dnc.value is True),
+                  hunter_key=bool(os.environ.get("HUNTER_API_KEY")), related=related.value if related else None, parent=db.get(m.Organisation, org.parent_id) if org.parent_id else None,
                   profile=profile, other_facts=other_facts, brands=brands, domains=domains, declared=declared, aliases=aliases,
                   roles=roles, role_labels=ROLE_LABELS, states=states, metrics=metrics, metric_labels=METRIC_LABELS,
                   edges_out=edges_out, edges_in=edges_in, children=children, merged_from=merged_from, scores=scores,
@@ -226,6 +229,53 @@ def add_person(org_id: int, request: Request, name: str = Form(...), title: str 
     st.audit("person.add", "organisation", org.id, None, {"person": p.name, "source": p.source})
     flash(request, f"Added {p.name}.")
     return RedirectResponse(f"/org/{org.id}#people", status_code=303)
+
+
+@router.post("/org/{org_id}/contacts")
+def find_org_contacts(org_id: int, request: Request, db: Session = Depends(get_db), user=Depends(admin_user)):
+    """One Hunter lookup for this organisation now (safeguards still apply: possible partners are never looked up)."""
+    from ...contacts import find_contacts
+    from ...sources.hunter import HunterError
+    org = _org_or_404(db, org_id)
+    try:
+        res = find_contacts(store_for(db, user), org_ids=[org.id])
+    except HunterError as e:
+        flash(request, str(e))
+        return RedirectResponse(f"/org/{org.id}#people", status_code=303)
+    if res["skipped"]:
+        flash(request, "Not looked up: it may already be a partner, is blocked, screened out, marked do-not-contact, "
+                       "has no website, or already has people on record.")
+    elif res["people"]:
+        flash(request, f"Found {res['people']} contact{'s' if res['people'] != 1 else ''}.")
+    elif res["sent_to_research"]:
+        flash(request, "Hunter found nobody suitable; sent to the researchers for named decision-makers.")
+    else:
+        flash(request, "Nobody suitable found." + (f" Emails found for {res['emails_found']} named people." if res["emails_found"] else ""))
+    return RedirectResponse(f"/org/{org.id}#people", status_code=303)
+
+
+@router.post("/org/{org_id}/do-not-contact")
+def org_do_not_contact(org_id: int, request: Request, on: str = Form("1"), note: str = Form(""),
+                       db: Session = Depends(get_db), user=Depends(admin_user)):
+    from ...contacts import set_do_not_contact
+    org = _org_or_404(db, org_id)
+    set_do_not_contact(store_for(db, user), org, on == "1", note.strip()[:500])
+    flash(request, "Marked do not contact." if on == "1" else "Contact allowed again.")
+    return RedirectResponse(f"/org/{org.id}#people", status_code=303)
+
+
+@router.post("/person/{person_id}/do-not-contact")
+def person_do_not_contact(person_id: int, request: Request, on: str = Form("1"), db: Session = Depends(get_db),
+                          user=Depends(admin_user)):
+    p = db.get(m.Person, person_id)
+    if p is None:
+        raise HTTPException(404, "No such person")
+    before = p.do_not_contact
+    p.do_not_contact = on == "1"
+    store_for(db, user).audit("person.do_not_contact", "organisation", p.organisation_id, {"person": p.name, "on": before},
+                              {"person": p.name, "on": p.do_not_contact})
+    flash(request, f"{p.name}: {'do not contact' if p.do_not_contact else 'contact allowed'}.")
+    return RedirectResponse(f"/org/{p.organisation_id}#people", status_code=303)
 
 
 @router.post("/person/{person_id}/delete")

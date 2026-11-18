@@ -9,7 +9,8 @@ from sqlalchemy import func, select
 
 from . import models as m
 
-DEFAULT_LIMITS = {"anthropic": (300.0, "usd"), "ahrefs": (100_000.0, "units"), "similarweb": (0.0, "units")}
+DEFAULT_LIMITS = {"anthropic": (300.0, "usd"), "ahrefs": (100_000.0, "units"), "similarweb": (0.0, "units"),
+                  "hunter": (50.0, "units")}  # Hunter credits: a search 1, a verification 0.5
 
 
 class BudgetExceeded(Exception):

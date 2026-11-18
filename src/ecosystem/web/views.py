@@ -189,7 +189,12 @@ def people_table(db, f: dict, limit: int | None = 200) -> list[dict]:
     if f.get("role_category"):
         params["rc"] = f["role_category"]
         where.append("p.role_category = :rc")
+    if f.get("contactable"):
+        where.append("p.email IS NOT NULL AND p.email_status IN ('valid', 'accept_all') AND NOT p.do_not_contact "
+                     "AND NOT EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = o.id "
+                     "AND ec.attribute = 'do_not_contact' AND ec.value = 'true'::jsonb)")
     sql = f"""SELECT p.id, p.name, p.title, p.role_category, p.email, p.linkedin_url, p.source, p.last_verified_at,
+                     p.email_status, p.email_confidence, p.do_not_contact,
                      o.id AS org_id, o.display_name AS org_name
               FROM person p LEFT JOIN organisation o ON o.id = p.organisation_id
               WHERE {' AND '.join(where)} ORDER BY o.display_name, p.name"""

@@ -63,6 +63,11 @@ ATTRIBUTES = {  # finding attribute -> what the researcher should report (also t
     "litigation_note": "Enforcement, licence alerts, lawsuits or regulatory actions (CFPB, FTC, state AG/regulator, courts).",
 }
 
+PEOPLE_ATTRIBUTES = {
+    "person": "A named decision-maker as 'Full Name | Job title' (partnerships, affiliates, lead acquisition, "
+              "marketing, growth, CEO/founder/president). One finding per person. Only people currently in the role.",
+}
+
 SYSTEM = """You research US consumer lenders for a lead-generation company's market map.
 
 Find facts about the one company you are given, using web search and web fetch. Prefer the company's own website
@@ -92,13 +97,21 @@ footers; its parent, owner or tribe; the brands it lends under; the bank that or
 loans for someone else; and which lead sources or partners its published partner / consent lists name.
 Use web search and web fetch.""")
 
+PEOPLE_SYSTEM = SYSTEM.replace(
+    "Find facts about the one company you are given, using web search and web fetch.",
+    """You find the decision-makers at the one company you are given: the people who lead partnerships, affiliates,
+lead acquisition or marketing, and its senior leaders (CEO, founder, president). Use web search and web fetch, and
+prefer the company's own leadership / about / team pages, press releases, conference speaker pages, SEC filings,
+state licence records and reputable news. Do not use LinkedIn pages and do not look for personal email addresses or
+phone numbers: names and job titles only.""")
+
 ANSWER_RULES = """
 You have also been asked specific questions (below). Answer each one in `answers`, in the same order, using only what
 you saw on pages in this session, with the URL and a verbatim quote. If you could not find the answer, say so plainly
 in `answer` and leave source_url and quote empty. Where an answer is also a fact in the list, record it as a finding too."""
 
 
-def _record_tool() -> dict:
+def _record_tool(attributes: dict | None = None) -> dict:
     return {
         "name": "record_findings",
         "description": "Record the verified findings for this company. Call exactly once, at the end.",
@@ -130,7 +143,7 @@ def _record_tool() -> dict:
                         "additionalProperties": False,
                         "required": ["attribute", "value", "source_url", "quote", "confidence"],
                         "properties": {
-                            "attribute": {"type": "string", "enum": list(ATTRIBUTES)},
+                            "attribute": {"type": "string", "enum": list(attributes or ATTRIBUTES)},
                             "value": {"type": "string"},
                             "source_url": {"type": "string"},
                             "quote": {"type": "string"},
@@ -143,13 +156,17 @@ def _record_tool() -> dict:
     }
 
 
+def _attributes(request) -> dict:
+    return PEOPLE_ATTRIBUTES if request is not None and request.mode == "people" else ATTRIBUTES
+
+
 def _brief(s, org: m.Organisation, request: "m.ResearchRequest | None" = None) -> str:
     names = sorted({a for a, in s.execute(select(m.NameAlias.alias).where(m.NameAlias.entity_id == org.id))})
     domains = [d for d, in s.execute(select(m.Domain.hostname).where(m.Domain.organisation_id == org.id))]
     facts = s.execute(text("""SELECT attribute, value FROM entity_current WHERE entity_id = :id AND attribute = ANY(:a)"""),
                       {"id": org.id, "a": ["cfpb_complaints_12m", "cfpb_complaints_installment_12m",
                                            "cfpb_complaints_payday_12m", "operator_group", "website"]}).all()
-    wanted = "\n".join(f"- {k}: {v}" for k, v in ATTRIBUTES.items())
+    wanted = "\n".join(f"- {k}: {v}" for k, v in _attributes(request).items())
     known = "\n".join(f"- {a}: {v}" for a, v in facts) or "- nothing else yet"
     return (f"Company (name in the CFPB complaint database): {org.legal_name or org.display_name}\n"
             f"Other names seen: {', '.join(n for n in names if n != org.display_name) or 'none'}\n"
@@ -210,8 +227,9 @@ def research_org(store: Store, org: m.Organisation, client, model: str = DEFAULT
     search_type, fetch_type = WEB_TOOLS[tools_variant]
     tools = [{"type": search_type, "name": "web_search", "max_uses": MAX_SEARCHES},
              {"type": fetch_type, "name": "web_fetch", "max_uses": MAX_FETCHES},
-             _record_tool()]
-    system = (OWNERSHIP_SYSTEM if request is not None and request.mode == "ownership" else SYSTEM) \
+             _record_tool(_attributes(request))]
+    mode = request.mode if request is not None else "profile"
+    system = {"ownership": OWNERSHIP_SYSTEM, "people": PEOPLE_SYSTEM}.get(mode, SYSTEM) \
         + (ANSWER_RULES if request is not None and request.questions else "")
     messages = [{"role": "user", "content": _brief(store.s, org, request)}]
     seen_urls: set[str] = set()
@@ -254,7 +272,7 @@ def research_org(store: Store, org: m.Organisation, client, model: str = DEFAULT
     kept, rejected = [], []
     for f in result.get("findings", []):
         u = _norm_url(f.get("source_url", ""))
-        ok = f.get("attribute") in ATTRIBUTES and u and (u in allowed or u.split("?")[0] in allowed_noquery) \
+        ok = f.get("attribute") in _attributes(request) and u and (u in allowed or u.split("?")[0] in allowed_noquery) \
             and str(f.get("value", "")).strip()
         (kept if ok else rejected).append(f)
     answers = []
@@ -309,7 +327,7 @@ def write_findings(store: Store, org: m.Organisation, res: dict, model: str, job
 # ---------------------------------------------------------------- research requests (the feedback loop)
 MAX_REQUESTS_PER_ITEM = 2       # a card can be sent back twice; after that a person decides
 MAX_QUESTIONS = 3
-MODES = ("profile", "ownership")
+MODES = ("profile", "ownership", "people")
 
 
 class RequestRefused(ValueError):
@@ -329,7 +347,7 @@ def ask(store: Store, org_id: int, questions: list[str], mode: str = "ownership"
     if not qs:
         raise RequestRefused("Give at least one question")
     if mode not in MODES:
-        raise RequestRefused("mode must be profile or ownership")
+        raise RequestRefused("mode must be profile, ownership or people")
     org = store.org(org_id)
     if org is None or org.lifecycle == "merged":
         raise RequestRefused("No such organisation")
@@ -532,6 +550,8 @@ def apply_research(store: Store, item: m.ReviewItem) -> int:
                 store.claim(org.id, "states_count", st["count"], src, confidence=c.confidence, method=p.PARSE_METHOD)
         elif c.attribute in ("operator_group", "tribe"):
             link_group(store, org, val, src, c.confidence, attribute=f"{c.attribute}_research")
+        elif c.attribute == "person":
+            add_researched_person(store, org, val, src)
         elif c.attribute == "litigation_note":
             for flag in p.compliance_flags(val) or ["other"]:
                 store.compliance_flag(org.id, flag, val, c)
@@ -540,6 +560,24 @@ def apply_research(store: Store, item: m.ReviewItem) -> int:
             r.loan_min, r.loan_max = r.loan_min or lo, r.loan_max or hi
     store.s.flush()
     return len(claims)
+
+
+def add_researched_person(store: Store, org: m.Organisation, val: str, src: m.Source) -> m.Person | None:
+    """'Full Name | Job title' from an approved people-research finding → a person with no email yet (the contacts
+    job then asks Hunter's email finder). Skipped when someone of that name is already on record."""
+    from .contacts import rank_title
+    name, _, title = (x.strip() for x in val.partition("|"))
+    if not name or len(name) > 120 or len(name.split()) < 2:
+        return None
+    if store.s.scalar(select(m.Person.id).where(m.Person.organisation_id == org.id,
+                                                func.lower(m.Person.name) == name.lower())):
+        return None
+    person = m.Person(id=store._entity("person"), organisation_id=org.id, name=name, title=title or None,
+                      role_category=rank_title(title)[1], source=f"Research ({src.url or 'cited page'})"[:1000],
+                      last_verified_at=datetime.now(timezone.utc), do_not_contact=False)
+    store.s.add(person)
+    store.s.flush()
+    return person
 
 
 def screen_out(store: Store, org: m.Organisation, reason: str) -> None:

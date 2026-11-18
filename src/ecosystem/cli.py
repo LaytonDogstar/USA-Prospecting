@@ -103,6 +103,10 @@ def main(argv=None) -> int:
     rs.add_argument("--yes", action="store_true", help="required: confirms the reset")
     sub.add_parser("bootstrap-admin", help="create the first admin from ADMIN_USERNAME / ADMIN_PASSWORD")
     sub.add_parser("ahrefs-plan", help="show the Ahrefs plan, limits and usage (free)")
+    sub.add_parser("hunter-account", help="show the Hunter plan and credits used (free)")
+    ct = sub.add_parser("contacts", help="find decision-makers' work emails with Hunter for the best prospects")
+    ct.add_argument("--limit", type=int, default=10)
+    ct.add_argument("--org", type=int, action="append", help="look up these organisation ids only")
     at = sub.add_parser("ahrefs-traffic", help="fill missing Ahrefs traffic figures")
     at.add_argument("--limit", type=int, default=50)
     sub.add_parser("ahrefs-serp", help="snapshot the top 20 results for each tracked keyword")
@@ -164,6 +168,12 @@ def main(argv=None) -> int:
         elif a.cmd == "ahrefs-plan":
             from .sources.ahrefs import AhrefsClient
             print(json.dumps(AhrefsClient(s).subscription(), indent=2))
+        elif a.cmd == "hunter-account":
+            from .sources.hunter import HunterClient
+            print(json.dumps(HunterClient(s).account(), indent=2, default=str))
+        elif a.cmd == "contacts":
+            from .contacts import find_contacts
+            print(find_contacts(store, limit=a.limit, org_ids=a.org))
         elif a.cmd == "ahrefs-traffic":
             from .enrich import fill_traffic
             print(fill_traffic(store, limit=a.limit))

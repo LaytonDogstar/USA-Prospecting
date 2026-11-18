@@ -184,13 +184,19 @@
     <h2>People</h2>
     {% for p in people %}
       <div class="claim"><b>{{ p.name }}</b>{% if p.title %}, {{ p.title }}{% endif %} <span class="chip">{{ person_roles.get(p.role_category, p.role_category) }}</span>
-        <div class="small">{{ p.email or '' }}{% if p.linkedin_url %} <a href="{{ p.linkedin_url }}" rel="noopener noreferrer" target="_blank">LinkedIn</a>{% endif %}</div>
+        <div class="small">{{ p.email or '' }}{% if p.email_status %} <span class="chip {{ 'good' if p.email_status == 'valid' else ('warn' if p.email_status in ('accept_all', 'unknown') else '') }}" title="Email check{% if p.email_confidence is not none %}, confidence {{ p.email_confidence }}{% endif %}">{{ {'valid': 'verified', 'accept_all': 'catch-all: unconfirmed', 'unknown': 'unverified', 'none': 'no email found'}.get(p.email_status, p.email_status) }}</span>{% endif %}{% if p.do_not_contact %} <span class="chip bad">do not contact</span>{% endif %}{% if p.linkedin_url %} <a href="{{ p.linkedin_url }}" rel="noopener noreferrer" target="_blank">LinkedIn</a>{% endif %}</div>
         <div class="small muted">Source: {{ p.source }} · {{ p.lawful_basis_note }}</div>
         {% if admin %}<form method="post" action="/person/{{ p.id }}/delete" class="row" data-confirm="Delete {{ p.name }} permanently?">{{ csrf_field(csrf) }}
-          <input name="reason" placeholder="Reason, e.g. deletion request" required size="28"><button class="danger">Delete</button></form>{% endif %}
+          <input name="reason" placeholder="Reason, e.g. deletion request" required size="28"><button class="danger">Delete</button></form>
+        <form method="post" action="/person/{{ p.id }}/do-not-contact" class="row">{{ csrf_field(csrf) }}<input type="hidden" name="on" value="{{ '0' if p.do_not_contact else '1' }}"><button>{{ 'Allow contact again' if p.do_not_contact else 'Do not contact' }}</button></form>{% endif %}
       </div>
     {% else %}<p class="muted">No people yet.</p>{% endfor %}
+    {% if org_dnc %}<p><span class="chip bad">Do not contact this organisation</span> Contact lookups are skipped.</p>{% endif %}
     {% if admin %}
+    <div class="row">
+      {% if hunter_key and not org_dnc %}<form method="post" action="/org/{{ org.id }}/contacts" class="row" data-confirm="Look up decision-makers with Hunter? Uses 1-3 credits.">{{ csrf_field(csrf) }}<button>Find contacts (Hunter)</button></form>{% endif %}
+      <form method="post" action="/org/{{ org.id }}/do-not-contact" class="row">{{ csrf_field(csrf) }}<input type="hidden" name="on" value="{{ '0' if org_dnc else '1' }}"><input name="note" placeholder="Note (optional)" size="20"><button>{{ 'Allow contact again' if org_dnc else 'Do not contact this organisation' }}</button></form>
+    </div>
     <details><summary>Add a person</summary>
       <form method="post" action="/org/{{ org.id }}/people" class="stack">{{ csrf_field(csrf) }}
         <div class="row"><label>Name <input name="name" required></label><label>Title <input name="title"></label></div>

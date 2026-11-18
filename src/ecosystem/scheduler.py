@@ -31,6 +31,8 @@ DEFAULTS = {
     "upkeep": ("Upkeep: duplicate check, partner check, re-score (free)", 24, {}, None),
     "research_compare": ("Model test (one-off): research companies with Sonnet and Opus, graded blind", 720, {"n": 20},
                          "ANTHROPIC_API_KEY"),
+    "contacts": ("Find decision-makers' work emails for the best prospects (Hunter)", 168, {"limit": 10},
+                 "HUNTER_API_KEY"),
     # last, so it runs after the jobs above when they are due together
     "assistant": ("Assistant: apply safe suggestions, recommend on the rest (Claude), daily report", 24,
                   {"limit": 80}, None),
@@ -98,6 +100,10 @@ def _run_job(s, job: str, actor: str, kwargs: dict) -> None:
         return
     if job == "research_compare":
         research.research_compare(Store(s, actor=actor), **kwargs)
+        return
+    if job == "contacts":
+        from .contacts import find_contacts
+        find_contacts(Store(s, actor=actor), **kwargs)
         return
     fn = {"ahrefs_fill_traffic": enrich.fill_traffic, "ahrefs_serp_snapshot": enrich.serp_snapshot,
           "research": research.research_batch, "upkeep": upkeep}[job]

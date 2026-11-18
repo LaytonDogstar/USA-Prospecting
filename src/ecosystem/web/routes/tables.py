@@ -63,10 +63,13 @@ def supply(request: Request, db: Session = Depends(get_db), user=Depends(current
 
 @router.get("/people")
 def people(request: Request, db: Session = Depends(get_db), user=Depends(current_user)):
-    f = {"q": request.query_params.get("q", ""), "role_category": request.query_params.get("role_category", "")}
+    f = {"q": request.query_params.get("q", ""), "role_category": request.query_params.get("role_category", ""),
+         "contactable": request.query_params.get("contactable", "")}
     if request.query_params.get("format") == "csv":
         rows = people_table(db, f, limit=None)
         cols = [("name", "name"), ("title", "title"), ("org_name", "organisation"), ("role_category", "role category"),
-                ("email", "email"), ("linkedin_url", "LinkedIn"), ("source", "source"), ("last_verified_at", "last verified")]
+                ("email", "email"), ("email_status", "email check"), ("email_confidence", "email confidence"),
+                ("do_not_contact", "do not contact"), ("linkedin_url", "LinkedIn"), ("source", "source"),
+                ("last_verified_at", "last verified")]
         return _csv(rows, cols, "people")
     return render(request, "people.html", user, rows=people_table(db, f), f=f, role_categories=m.PERSON_ROLE_CATEGORIES)

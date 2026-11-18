@@ -293,14 +293,16 @@ def research_page(request: Request, db: Session = Depends(get_db), user=Depends(
     kws = list(db.scalars(select(m.TrackedKeyword).order_by(m.TrackedKeyword.keyword)))
     return render(request, "admin_research.html", user, section="research", budgets=budget.summary(db), runs=runs,
                   keywords=kws, keys={"anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
-                                      "ahrefs": bool(os.environ.get("AHREFS_API_KEY"))},
+                                      "ahrefs": bool(os.environ.get("AHREFS_API_KEY")),
+                                      "hunter": bool(os.environ.get("HUNTER_API_KEY"))},
                   models=list(PRICES), default_model=DEFAULT_MODEL,
                   running={r.job for r in runs if r.status == "running"}, ahrefs_plan=request.session.pop("ahrefs_plan", None),
+                  hunter_account=request.session.pop("hunter_account", None),
                   schedules=scheduler.ensure_defaults(db), schedule_defaults=scheduler.DEFAULTS,
                   requests=[(r, db.get(m.Organisation, r.organisation_id)) for r in db.scalars(
                       select(m.ResearchRequest).order_by(m.ResearchRequest.id.desc()).limit(30))],
                   scheduler_on=scheduler.enabled_by_env(),
-                  env_keys={k: bool(os.environ.get(k)) for k in ("ANTHROPIC_API_KEY", "AHREFS_API_KEY")})
+                  env_keys={k: bool(os.environ.get(k)) for k in ("ANTHROPIC_API_KEY", "AHREFS_API_KEY", "HUNTER_API_KEY")})
 
 
 def _run_schedule_now(job: str, actor: str) -> None:
@@ -428,6 +430,20 @@ def research_run(request: Request, background: BackgroundTasks, job_name: str = 
     background.add_task(_run_job, job_name, user.username, kwargs)
     flash(request, f"Started {job_name.replace('_', ' ')}. Reload this page to follow it; results appear in the log below"
                    f"{' and research findings in the review inbox' if job_name == 'research' else ''}.")
+    return RedirectResponse("/admin/research", status_code=303)
+
+
+@router.post("/research/hunter-account")
+def research_hunter_account(request: Request, db: Session = Depends(get_db), user=Depends(admin_user)):
+    from ...sources.hunter import HunterClient, HunterError
+    try:
+        a = HunterClient(db).account()
+        req = a.get("requests") or {}
+        request.session["hunter_account"] = {
+            "plan": a.get("plan_name"), "resets on": a.get("reset_date"),
+            **{f"{k} used": f"{(v or {}).get('used')} of {(v or {}).get('available')}" for k, v in req.items()}}
+    except HunterError as e:
+        flash(request, str(e))
     return RedirectResponse("/admin/research", status_code=303)
 
 

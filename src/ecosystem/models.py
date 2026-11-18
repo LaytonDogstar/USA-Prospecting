@@ -40,7 +40,7 @@ EDGE_TYPES = (
 EDGE_STATUSES = ("confirmed", "inferred", "rumoured")
 SOURCE_TYPES = (
     "sec_filing", "regulator", "site_read", "ahrefs", "similarweb", "cfpb", "court", "news", "job_post",
-    "spreadsheet_import", "manual",
+    "spreadsheet_import", "manual", "hunter",
 )
 CONFIDENCE = ("high", "medium", "low")
 CLAIM_STATUSES = ("proposed", "accepted", "rejected", "superseded")
@@ -55,7 +55,7 @@ REVIEW_KINDS = (
     "possible_match", "dedup", "new_entrant", "material_change", "low_confidence", "parse_failure",
     "relationship_confirm", "manual_check", "research",
 )
-PROVIDERS = ("anthropic", "ahrefs", "similarweb")
+PROVIDERS = ("anthropic", "ahrefs", "similarweb", "hunter")
 USER_ROLES = ("admin", "viewer")
 PERSON_ROLE_CATEGORIES = {
     "affiliate_partnerships": "Affiliate / partnerships manager",
@@ -126,6 +126,9 @@ class Person(Base):
     source: Mapped[str] = mapped_column(Text)
     last_verified_at: Mapped[datetime | None] = mapped_column(TS)
     lawful_basis_note: Mapped[str] = mapped_column(Text, default="UK GDPR legitimate interests (B2B contact)")
+    email_status: Mapped[str | None] = mapped_column(String(20))      # valid | accept_all | unknown | invalid | none
+    email_confidence: Mapped[int | None] = mapped_column(Integer)     # the provider's 0-100 score
+    do_not_contact: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Page(Base):

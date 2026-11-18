@@ -3,13 +3,14 @@
 {% block content %}
 <div class="page-head">
   <div><h1>People</h1>
-    <p class="muted">Business contacts only. Add people from an organisation's page. Found by hand in Sales Navigator or from public sources (filings, press releases, speaker pages). Never scraped from LinkedIn.</p></div>
+    <p class="muted">Business contacts only: decision-makers found by Hunter (work emails, with the public pages they were found on), by the researchers (names from company and press pages), or added by hand. Never scraped from LinkedIn. People marked "do not contact" are kept so they are never looked up again.</p></div>
   <a class="btn" href="{{ qs(f, format='csv') }}">Export CSV</a>
 </div>
 <form class="filters" method="get">
   <label>Search <input name="q" value="{{ f.q }}" placeholder="name, title or organisation"></label>
   <label>Role <select name="role_category"><option value="">Any</option>
     {% for k, label in role_categories.items() %}<option value="{{ k }}" {{ 'selected' if f.role_category == k }}>{{ label }}</option>{% endfor %}</select></label>
+  <label><input type="checkbox" name="contactable" value="1" {{ 'checked' if f.contactable }}> Ready to contact (checked email, not opted out)</label>
   <button class="primary">Filter</button>
 </form>
 <div class="panel table-wrap">
@@ -20,9 +21,9 @@
     <tr><td>{{ p.name }}</td><td>{{ p.title or '—' }}</td>
       <td>{% if p.org_id %}<a href="/org/{{ p.org_id }}#people">{{ p.org_name }}</a>{% endif %}</td>
       <td class="small">{{ role_categories.get(p.role_category, p.role_category) }}</td>
-      <td class="small">{{ p.email or '' }}{% if p.linkedin_url %} <a href="{{ p.linkedin_url }}" rel="noopener noreferrer" target="_blank">LinkedIn</a>{% endif %}</td>
+      <td class="small">{{ p.email or '' }}{% if p.email_status %} <span class="chip {{ 'good' if p.email_status == 'valid' else ('warn' if p.email_status in ('accept_all', 'unknown') else '') }}">{{ {'valid': 'verified', 'accept_all': 'catch-all', 'unknown': 'unverified', 'none': 'no email found'}.get(p.email_status, p.email_status) }}</span>{% endif %}{% if p.do_not_contact %} <span class="chip bad">do not contact</span>{% endif %}{% if p.linkedin_url %} <a href="{{ p.linkedin_url }}" rel="noopener noreferrer" target="_blank">LinkedIn</a>{% endif %}</td>
       <td class="small">{{ p.source }}</td><td class="small muted">{{ p.last_verified_at.strftime('%d %b %Y') if p.last_verified_at else '—' }}</td></tr>
-  {% else %}<tr><td colspan="7" class="muted">No people yet. Phase 4 generates role-based search lists for the A/B organisations.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="7" class="muted">No people yet. The weekly contacts job (Admin → Research &amp; budgets) or "Find contacts" on an organisation's page adds them.</td></tr>{% endfor %}
   </tbody>
 </table>
 </div>
