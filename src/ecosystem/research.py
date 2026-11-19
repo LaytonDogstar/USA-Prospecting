@@ -103,7 +103,8 @@ PEOPLE_SYSTEM = SYSTEM.replace(
 lead acquisition or marketing, and its senior leaders (CEO, founder, president). Use web search and web fetch, and
 prefer the company's own leadership / about / team pages, press releases, conference speaker pages, SEC filings,
 state licence records and reputable news. Do not use LinkedIn pages and do not look for personal email addresses or
-phone numbers: names and job titles only.""")
+phone numbers: names and job titles only. Record every person you name, including in your answers, as a `person`
+finding with its own URL and quote; a name given only in an answer is not saved.""")
 
 ANSWER_RULES = """
 You have also been asked specific questions (below). Answer each one in `answers`, in the same order, using only what
@@ -569,11 +570,14 @@ def add_researched_person(store: Store, org: m.Organisation, val: str, src: m.So
     name, _, title = (x.strip() for x in val.partition("|"))
     if not name or len(name) > 120 or len(name.split()) < 2:
         return None
+    rank, category = rank_title(title)
+    if rank <= 0:  # e.g. a CFO or general counsel: on record in the finding, but not a contact we want
+        return None
     if store.s.scalar(select(m.Person.id).where(m.Person.organisation_id == org.id,
                                                 func.lower(m.Person.name) == name.lower())):
         return None
     person = m.Person(id=store._entity("person"), organisation_id=org.id, name=name, title=title or None,
-                      role_category=rank_title(title)[1], source=f"Research ({src.url or 'cited page'})"[:1000],
+                      role_category=category, source=f"Research ({src.url or 'cited page'})"[:1000],
                       last_verified_at=datetime.now(timezone.utc), do_not_contact=False)
     store.s.add(person)
     store.s.flush()

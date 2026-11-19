@@ -102,10 +102,14 @@ def suggest(store: Store, it: m.ReviewItem, summ: dict) -> dict | None:
     if it.kind == "research":
         cat = it.payload.get("lender_category")
         facts = sum(it.payload.get("counts", {}).values())
+        cited_answers = sum(1 for a in it.payload.get("answers") or [] if a.get("cited"))
         if facts == 0:  # nothing verified (often a failed search): never screen out on that
             return {"action": "reject", "label": "Reject: no evidence found",
                     "why": "the research found no cited facts, so it says nothing either way; rejecting it lets the "
-                           "company be researched again", "safe": True}
+                           "company be researched again"
+                           + (f" (but it has {cited_answers} cited answer{'s' if cited_answers != 1 else ''}: "
+                              "read them first)" if cited_answers else ""),
+                    "safe": not cited_answers}
         if cat in NON_LENDER_CATEGORIES or (it.payload.get("is_us_consumer_lender") is False and cat != "unclear"):
             return {"action": "screen", "label": "Accept and screen out",
                     "why": f"research says it isn't a US consumer lender ({(cat or 'not a lender').replace('_', ' ')}), "

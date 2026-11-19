@@ -147,3 +147,19 @@ def test_person_with_email_claim_can_be_deleted(store):
     delete_person(person.id, req, reason="deletion request", db=store.s, user=NS(username="tester", role="admin"))
     assert store.s.get(m.Person, person.id) is None
     assert not store.s.scalars(select(m.Claim).where(m.Claim.entity_id == person.id)).all()
+
+
+def test_people_research_keeps_relevant_titles_only(store):
+    org = _prospect(store)
+    src = store.url_source("https://www.wrenloans.example/leadership", "site_read")
+    assert add_researched_person(store, org, "Pia Rook | Chief Financial Officer", src) is None
+    assert add_researched_person(store, org, "Lou Hart | Chief Operating Officer", src).role_category == "ceo_gm"
+
+
+def test_card_with_cited_answers_is_not_safely_rejected(store):
+    from ecosystem.decisions import suggest
+    org = _prospect(store)
+    it = store.review("research", f"research:{org.id}:1:req1", "Follow-up research", [org.id],
+                      {"run": 1, "counts": {}, "answers": [{"question": "q", "answer": "Lou Hart, COO", "cited": True}]})
+    s = suggest(store, it, {})
+    assert s["action"] == "reject" and s["safe"] is False
