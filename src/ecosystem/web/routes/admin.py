@@ -14,7 +14,7 @@ from ...auth import _ph, MIN_PASSWORD_LENGTH, create_user
 from ...config import RAW_DIR, REFERENCE_DIR
 from ...scoring import DEFAULT_WEIGHTS, current_weights, rescore, save_weights
 from ...store import Store
-from ..deps import Forbidden, admin_user, current_user, flash, get_db, render, store_for
+from ..deps import admin_user, admin_view, flash, get_db, render, store_for
 
 router = APIRouter(prefix="/admin")
 MAX_UPLOAD = 25 * 1024 * 1024
@@ -40,10 +40,6 @@ COMPONENT_HELP = {
 }
 
 
-def admin_view(user=Depends(current_user)):
-    if user.role != "admin":
-        raise Forbidden("Admin pages are for admins only.")
-    return user
 
 
 @router.get("")

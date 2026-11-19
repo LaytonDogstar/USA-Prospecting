@@ -7,15 +7,16 @@
     <p class="muted">Best buyers and traffic sources we don't work with yet, what changed, and what needs a decision.</p></div>
 </div>
 
-{% if needs %}<section class="panel" style="margin-bottom:16px">
+{% set admin = user.role == 'admin' %}
+{% if needs and admin %}<section class="panel" style="margin-bottom:16px">
   <div class="row" style="justify-content: space-between"><h2>Needs you</h2><a href="/notifications">All notifications →</a></div>
   <ul class="small">{% for n in needs %}<li><span class="chip {{ 'warn' if n.level in ('problem', 'warning') else 'good' }}">{{ {'problem': 'problem', 'action': 'needs you', 'warning': 'heads up'}[n.level] }}</span>
     {% if n.link %}<a href="{{ n.link }}">{{ n.title }}</a>{% else %}{{ n.title }}{% endif %}</li>{% endfor %}</ul>
 </section>{% endif %}
 
 <div class="kpis">
-  <a class="kpi {{ 'alert' if head.reviews }}" href="/review"><b>{{ head.reviews }}</b><span>items waiting for review</span></a>
-  <a class="kpi" href="/report"><b>Report</b><span>what ran and was decided today</span></a>
+  {% if admin %}<a class="kpi {{ 'alert' if head.reviews }}" href="/review"><b>{{ head.reviews }}</b><span>items waiting for review</span></a>
+  <a class="kpi" href="/report"><b>Report</b><span>what ran and was decided today</span></a>{% endif %}
   <a class="kpi {{ 'alert' if head.unconfirmed }}" href="/lenders?our=any"><b>{{ head.unconfirmed }}</b><span>relationships to confirm</span></a>
   <div class="kpi"><b>{{ head.working }}</b><span>live, contracting or in talks</span></div>
   <div class="kpi"><b>{{ '{:,}'.format(head.orgs) }}</b><span>organisations on the map</span></div>
@@ -36,7 +37,7 @@
       {% else %}<tr><td colspan="4" class="muted">No scored lenders yet. An admin can run a re-score under Admin.</td></tr>{% endfor %}
       </tbody>
     </table>
-    {% if held_b %}<p class="warnbox small" style="margin:8px 0 0">{{ held_b }} more held back: they may already be partners (open possible matches). <a href="/review?kind=possible_match">Resolve them in Review</a> before calling anyone.</p>{% endif %}
+    {% if held_b %}<p class="warnbox small" style="margin:8px 0 0">{{ held_b }} more held back: they may already be partners (open possible matches). {% if admin %}<a href="/review?kind=possible_match">Resolve them in Review</a>{% else %}An admin resolves them{% endif %} before anyone calls them.</p>{% endif %}
   </section>
 
   <section class="panel">
@@ -53,17 +54,17 @@
       {% else %}<tr><td colspan="4" class="muted">No scored supply sources yet.</td></tr>{% endfor %}
       </tbody>
     </table>
-    {% if held_s %}<p class="warnbox small" style="margin:8px 0 0">{{ held_s }} more held back: they may already be partners. <a href="/review?kind=possible_match">Resolve them in Review</a>.</p>{% endif %}
+    {% if held_s %}<p class="warnbox small" style="margin:8px 0 0">{{ held_s }} more held back: they may already be partners. {% if admin %}<a href="/review?kind=possible_match">Resolve them in Review</a>.{% else %}An admin resolves them.{% endif %}</p>{% endif %}
   </section>
 
-  <section class="panel">
+  {% if admin %}<section class="panel">
     <h2>Waiting for review <a class="small" href="/review">Open inbox →</a></h2>
     {% if reviews %}
     <table class="compact"><tbody>
       {% for kind, label, n in reviews %}<tr><td><a href="/review?kind={{ kind }}">{{ label }}</a></td><td class="num"><b>{{ n }}</b></td></tr>{% endfor %}
     </tbody></table>
     {% else %}<p class="muted">Nothing waiting.</p>{% endif %}
-  </section>
+  </section>{% endif %}
 
   <section class="panel">
     <h2>Recent changes</h2>

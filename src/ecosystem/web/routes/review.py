@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ... import models as m
 from ...decisions import DecisionError, apply_safe, decide as decide_item, suggest, summaries, undo_screen
-from ..deps import admin_user, current_user, flash, get_db, render, store_for
+from ..deps import admin_view, admin_user, current_user, flash, get_db, render, store_for
 from .home import REVIEW_LABELS
 
 router = APIRouter()
@@ -21,7 +21,7 @@ def _summaries(db: Session, ids: set[int]) -> dict:
 
 @router.get("/review")
 def inbox(request: Request, kind: str = "", status: str = "open", page: int = 1, db: Session = Depends(get_db),
-          user=Depends(current_user)):
+          user=Depends(admin_view)):
     counts = dict(db.execute(select(m.ReviewItem.kind, func.count()).where(m.ReviewItem.status == "open")
                              .group_by(m.ReviewItem.kind)).all())
     kind = kind if kind in REVIEW_LABELS else next((k for k in REVIEW_LABELS if counts.get(k)), "possible_match")

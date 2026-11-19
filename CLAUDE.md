@@ -114,7 +114,7 @@ Scoring rules: lead-buying uses the Lead-buying strength index when there is one
 to the researched segment text. Research targets likely buyers first (`research.pilot_targets`: on a lead source's
 partner list or tribal, not bank/mortgage/auto by name, most small-dollar complaints). Components score 0-100. A component nobody has data for yet (state overlap, traffic overlap: they need the internal source) is left out for everyone; a component missing for one organisation scores 25 ("unknown") so thin records don't outrank researched ones. Compliance is a gate, not a component: `blocked` is hidden from ranked views by default, `review` shows a warning.
 
-Web rules: every page needs a session except `/login`, `/healthz`, `/static`. Viewers read; admins edit. Every POST goes through `admin_user` (role + CSRF). Every edit writes `audit_log`. Merges and links only happen from a review decision.
+Web rules: every page needs a session except `/login`, `/healthz`, `/static`. Viewers read the map, tables, People and organisation pages; Review, Report, Notifications, Guide, the JSON API and Admin are admin-only (`deps.admin_view`). Admins edit. Every POST goes through `admin_user` (role + CSRF). Every edit writes `audit_log`. Merges and links only happen from a review decision.
 
 Key tables: `job_schedule`; `entity` (shared id space) → `organisation`, `brand`, `domain`, `person`, `page`; `name_alias`; `org_role`; `entity_state`; `relationship` (edges); `our_relationship` (+history); `source`, `claim`, `claim_source`; `entity_current` (view: latest accepted claim per attribute); `metric_snapshot`; `compliance_flag`, `compliance_status`; `score`, `weights_version`; `review_item`; `audit_log`; `app_user`; `job_run`, `api_usage`, `http_cache` (Stage 2).
 

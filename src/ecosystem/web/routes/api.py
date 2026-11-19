@@ -8,7 +8,7 @@ from ... import budget, models as m, notify
 from ...assistant import allowed_choices, card_text, report, to_action
 from ...research import open_request
 from ...decisions import suggest, summaries
-from ..deps import admin_user, csrf_token, current_user, get_db, store_for
+from ..deps import admin_user, admin_view, csrf_token, get_db, store_for
 
 router = APIRouter(prefix="/api")
 
@@ -21,12 +21,12 @@ def _run(r: m.JobRun) -> dict:
 
 
 @router.get("/csrf")
-def csrf(request: Request, user=Depends(current_user)):
+def csrf(request: Request, user=Depends(admin_view)):
     return {"csrf": csrf_token(request), "user": user.username, "role": user.role}
 
 
 @router.get("/status")
-def status(db: Session = Depends(get_db), user=Depends(current_user)):
+def status(db: Session = Depends(get_db), user=Depends(admin_view)):
     runs = list(db.scalars(select(m.JobRun).order_by(m.JobRun.id.desc()).limit(30)))
     return {"budgets": budget.summary(db), "runs": [_run(r) for r in runs],
             "schedules": [{"job": s.job, "enabled": s.enabled, "every_hours": s.every_hours, "params": s.params,
@@ -37,7 +37,7 @@ def status(db: Session = Depends(get_db), user=Depends(current_user)):
 
 
 @router.get("/report")
-def report_json(hours: int = 24, db: Session = Depends(get_db), user=Depends(current_user)):
+def report_json(hours: int = 24, db: Session = Depends(get_db), user=Depends(admin_view)):
     r = report(db, max(1, min(hours, 24 * 31)))
     brief = lambda it: {"id": it.id, "kind": it.kind, "title": it.title, "status": it.status,
                         "decided_by": it.decided_by, "note": it.note}
@@ -49,7 +49,7 @@ def report_json(hours: int = 24, db: Session = Depends(get_db), user=Depends(cur
 
 @router.get("/review")
 def review_json(kind: str = "", limit: int = 50, offset: int = 0, db: Session = Depends(get_db),
-                user=Depends(current_user)):
+                user=Depends(admin_view)):
     q = select(m.ReviewItem).where(m.ReviewItem.status == "open")
     if kind:
         q = q.where(m.ReviewItem.kind == kind)
@@ -85,7 +85,7 @@ def post_notification(level: str = Form(...), category: str = Form("daily_review
 
 
 @router.get("/notifications")
-def list_notifications(db: Session = Depends(get_db), user=Depends(current_user)):
+def list_notifications(db: Session = Depends(get_db), user=Depends(admin_view)):
     notify.auto_resolve(db)
     rows = db.scalars(select(m.Notification).where(notify.OPEN).order_by(m.Notification.created_at.desc()))
     return {"open": [{"id": n.id, "level": n.level, "category": n.category, "title": n.title, "body": n.body,

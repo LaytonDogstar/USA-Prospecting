@@ -20,13 +20,13 @@
     <a href="/states" class="{{ 'on' if path.startswith('/states') }}">States</a>
     <a href="/leverage" class="{{ 'on' if path.startswith('/leverage') }}">Leverage</a>
     <a href="/people" class="{{ 'on' if path.startswith('/people') }}">People</a>
-    <a href="/review" class="{{ 'on' if path.startswith('/review') }}">Review</a>
+    {% if user.role == 'admin' %}<a href="/review" class="{{ 'on' if path.startswith('/review') }}">Review</a>
     <a href="/report" class="{{ 'on' if path.startswith('/report') }}">Report</a>
-    <a href="/guide" class="{{ 'on' if path.startswith('/guide') }}">Guide</a>
+    <a href="/guide" class="{{ 'on' if path.startswith('/guide') }}">Guide</a>{% endif %}
     {% if user.role == 'admin' %}<a href="/admin/weights" class="{{ 'on' if path.startswith('/admin') }}">Admin</a>{% endif %}
   </nav>
   <div class="who">{% set unread_n = request.state.unread if request.state.unread is defined else 0 %}
-    <a href="/notifications" class="bell {{ 'has' if unread_n }}" title="Notifications" aria-label="Notifications: {{ unread_n }} unread">Notifications{% if unread_n %} <b>{{ unread_n }}</b>{% endif %}</a>
+    {% if user.role == 'admin' %}<a href="/notifications" class="bell {{ 'has' if unread_n }}" title="Notifications" aria-label="Notifications: {{ unread_n }} unread">Notifications{% if unread_n %} <b>{{ unread_n }}</b>{% endif %}</a>{% endif %}
     <span>{{ user.username }}{% if user.role != 'admin' %} (viewer){% endif %}</span>
     <form method="post" action="/logout" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Sign out</button></form>
   </div>

@@ -44,8 +44,9 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> m.AppUser:
     if user is None or not user.is_active:
         request.session.clear()
         raise NotAuthenticated()
-    from ..notify import unread_count
-    request.state.unread = unread_count(db, user.username)  # the header bell
+    if user.role == "admin":
+        from ..notify import unread_count
+        request.state.unread = unread_count(db, user.username)  # the header bell
     return user
 
 
@@ -61,6 +62,13 @@ async def check_csrf(request: Request) -> None:
     sent = str(form.get("csrf", ""))
     if not sent or not hmac.compare_digest(sent, request.session.get("csrf", "")):
         raise Forbidden("The form expired. Go back, reload the page and try again.")
+
+
+def admin_view(user: m.AppUser = Depends(current_user)) -> m.AppUser:
+    """For admin-only pages (GET): Admin, Review, Report, Notifications, Guide and the JSON API."""
+    if user.role != "admin":
+        raise Forbidden("This page is for admins only.")
+    return user
 
 
 def admin_user(request: Request, user: m.AppUser = Depends(current_user), _=Depends(check_csrf)) -> m.AppUser:

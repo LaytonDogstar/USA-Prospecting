@@ -38,17 +38,17 @@
 
   <section class="panel" id="access">
     <h2>Who can do what</h2>
-    <p>There are two roles. You are signed in as <b>{{ user.username }}</b> ({{ 'admin' if admin else 'viewer' }}).</p>
+    <p>There are two roles. Viewers browse the map; admins run it. This guide is for admins.</p>
     <table class="compact"><thead><tr><th></th><th>Viewer</th><th>Admin</th></tr></thead><tbody>
       <tr><td>Home, Lenders, Supply, Map, States, Leverage, organisation pages, evidence</td><td>See</td><td>See</td></tr>
       <tr><td>People (names, titles, work emails) and the CSV exports</td><td>See and export</td><td>See and export</td></tr>
-      <tr><td>Review inbox, Report, Notifications, this Guide</td><td>See</td><td>See</td></tr>
+      <tr><td>Review inbox, Report, Notifications, this Guide</td><td>Hidden</td><td>Yes</td></tr>
       <tr><td>Decide review cards, ask the researchers, bulk-apply safe suggestions</td><td>No</td><td>Yes</td></tr>
       <tr><td>Edit organisations: relationships, roles, compliance, people, do-not-contact, Find contacts</td><td>No</td><td>Yes</td></tr>
       <tr><td>Resolve notifications for everyone</td><td>No</td><td>Yes</td></tr>
       <tr><td>Admin: imports, weights and re-score, users, research &amp; budgets, schedules, audit log</td><td>Hidden</td><td>Yes</td></tr>
     </tbody></table>
-    <p class="small muted">Viewers can see everything that isn't under Admin, including contact details, so only give viewer access to people who may see the whole map. Accounts lock after 5 wrong passwords; an admin can reset a password under Admin → Users.</p>
+    <p class="small muted">Viewers can still see People and its export (names, titles, work emails), so only give viewer access to people who may see the contacts. Viewers see the "may already be a partner" flag but not the cards behind it. Accounts lock after 5 wrong passwords; an admin can reset a password under Admin → Users.</p>
   </section>
 
   <section class="panel" id="daily">

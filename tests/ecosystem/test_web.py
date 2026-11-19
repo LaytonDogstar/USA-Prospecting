@@ -72,7 +72,7 @@ def test_login_and_home(web):
     r = web.get("/")
     assert r.status_code == 200 and "What matters now" in r.text
     g = web.get("/guide")
-    assert g.status_code == 200 and "Who can do what" in g.text and "(admin)" in g.text
+    assert g.status_code == 200 and "Who can do what" in g.text
     # Prairie is the top unworked buyer, but an open possible match says it may already be a partner:
     # it is held back from the list, with a warning pointing to Review
     assert "Sunrise Lending" not in r.text and "held back" in r.text
@@ -391,11 +391,17 @@ def test_notifications_bell_page_and_api(web, session):
     assert bad.status_code == 400
 
 
-def test_viewer_can_mark_read_but_not_post(web, session):
+def test_viewer_sees_map_and_tables_but_not_the_running_of_it(web, session):
     login(web, "reader", "viewer-password-1")
-    assert web.post("/notifications/read", data={"csrf": csrf(web, "/notifications")}, follow_redirects=False).status_code == 303
-    tok = web.get("/api/csrf").json()["csrf"]
-    assert web.post("/api/notifications", data={"csrf": tok, "level": "info", "title": "x"}).status_code in (403,)
+    home = web.get("/")
+    assert home.status_code == 200 and "Waiting for review" not in home.text and 'href="/review"' not in home.text
+    assert 'href="/notifications"' not in home.text and 'href="/guide"' not in home.text
+    for path in ("/lenders", "/supply", "/people", "/map", "/states", "/leverage"):
+        assert web.get(path).status_code == 200, path
+    for path in ("/review", "/report", "/notifications", "/guide", "/api/status", "/api/review", "/api/csrf",
+                 "/api/notifications", "/admin/research"):
+        assert web.get(path).status_code == 403, path
+    assert web.post("/notifications/read", data={"csrf": csrf(web)}).status_code == 403
 
 
 def test_ask_researchers_from_a_card(web, session):
