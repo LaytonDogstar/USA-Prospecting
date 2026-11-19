@@ -86,7 +86,8 @@ src/ecosystem/
     routes/      auth, home, tables (lenders/supply/people + CSV), maps (/map, /map/data JSON, /states,
                  /leverage: owner groups and sources feeding several of our buyers),
                  entity (page, evidence, source, edits),
-                 review (inbox + decisions: merge / link / approve / reject), admin (weights, rescore, users,
+                 review (inbox + decisions: merge / link / approve / reject), guide (/guide: the working guide,
+                 every signed-in user; update it when features change), admin (weights, rescore, users,
                  imports upload, audit)
     templates/   Jinja; _macros.html has the evidence "i" link, chips and score cells
     static/      style.css (light/dark tokens), app.js (evidence drawer, confirm prompts), map.js (Cytoscape

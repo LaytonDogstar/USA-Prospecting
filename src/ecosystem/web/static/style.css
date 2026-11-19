@@ -176,3 +176,16 @@ details > summary { cursor: pointer; color: var(--muted); margin: 6px 0; }
 .note .body p { margin: 4px 0; }
 .note .body ul { margin: 4px 0 4px 18px; padding: 0; }
 .note .meta { font-size: 12px; color: var(--muted); }
+
+/* working guide */
+.guide { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; align-items: start; }
+.guide nav.toc { position: sticky; top: 12px; font-size: 13px; }
+.guide nav.toc a { display: block; padding: 3px 0; color: var(--muted); text-decoration: none; }
+.guide nav.toc a:hover { color: var(--ink); }
+.guide .prose { max-width: 760px; line-height: 1.55; }
+.guide .prose section { margin-bottom: 18px; }
+.guide .prose h2 { font-size: 17px; margin-top: 4px; }
+.guide .prose h3 { font-size: 14px; margin: 14px 0 6px; }
+.guide .prose li { margin: 3px 0; }
+.guide .prose table { margin: 8px 0; }
+@media (max-width: 800px) { .guide { grid-template-columns: 1fr; } .guide nav.toc { position: static; } }

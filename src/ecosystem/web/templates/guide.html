@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}Guide{% endblock %}
+{% block content %}
+{% set admin = user.role == 'admin' %}
+<div class="page-head">
+  <div><h1>Working guide</h1>
+    <p class="muted">How the portal works, what runs by itself and what needs a person.</p></div>
+</div>
+<div class="guide">
+  <nav class="toc panel" aria-label="Contents">
+    <a href="#how">How it works</a>
+    <a href="#access">Who can do what</a>
+    <a href="#daily">Your 10-minute routine</a>
+    <a href="#team">The Claude team</a>
+    <a href="#schedules">What runs by itself</a>
+    <a href="#review">Deciding review cards</a>
+    <a href="#partners">The partner safeguard</a>
+    <a href="#contacts">Contacts</a>
+    <a href="#notifications">Notifications</a>
+    <a href="#budgets">Budgets and keys</a>
+    <a href="#pages">Pages</a>
+    <a href="#words">Chips and words</a>
+    <a href="#wrong">If something goes wrong</a>
+  </nav>
+  <div class="prose">
+
+  <section class="panel" id="how">
+    <h2>How it works</h2>
+    <p>The portal maps the US lending lead-gen market: lenders that buy leads, the traffic sources that sell them, who owns
+      whom, and where we already work. Machines do the gathering (spreadsheet imports, research with Claude, Ahrefs traffic,
+      Hunter contacts). People decide what to believe.</p>
+    <ul>
+      <li><b>Every fact has a source.</b> Click the small <b>i</b> next to any fact to see where it came from.</li>
+      <li><b>Nothing is merged, linked or promoted without a decision</b>, made by a person or, for clear-cut cases only, by the assistant. Every decision is logged with its reason.</li>
+      <li><b>"Our partner" is only ever set by a person</b> (from our relationships list), never guessed from a name or website.</li>
+    </ul>
+  </section>
+
+  <section class="panel" id="access">
+    <h2>Who can do what</h2>
+    <p>There are two roles. You are signed in as <b>{{ user.username }}</b> ({{ 'admin' if admin else 'viewer' }}).</p>
+    <table class="compact"><thead><tr><th></th><th>Viewer</th><th>Admin</th></tr></thead><tbody>
+      <tr><td>Home, Lenders, Supply, Map, States, Leverage, organisation pages, evidence</td><td>See</td><td>See</td></tr>
+      <tr><td>People (names, titles, work emails) and the CSV exports</td><td>See and export</td><td>See and export</td></tr>
+      <tr><td>Review inbox, Report, Notifications, this Guide</td><td>See</td><td>See</td></tr>
+      <tr><td>Decide review cards, ask the researchers, bulk-apply safe suggestions</td><td>No</td><td>Yes</td></tr>
+      <tr><td>Edit organisations: relationships, roles, compliance, people, do-not-contact, Find contacts</td><td>No</td><td>Yes</td></tr>
+      <tr><td>Resolve notifications for everyone</td><td>No</td><td>Yes</td></tr>
+      <tr><td>Admin: imports, weights and re-score, users, research &amp; budgets, schedules, audit log</td><td>Hidden</td><td>Yes</td></tr>
+    </tbody></table>
+    <p class="small muted">Viewers can see everything that isn't under Admin, including contact details, so only give viewer access to people who may see the whole map. Accounts lock after 5 wrong passwords; an admin can reset a password under Admin → Users.</p>
+  </section>
+
+  <section class="panel" id="daily">
+    <h2>Your 10-minute routine</h2>
+    <ol>
+      <li><b><a href="/notifications">Notifications</a></b> (the bell, also <b>Needs you</b> on Home): anything that failed, hit a budget or needs your decision. Notices close themselves once dealt with.</li>
+      <li><b><a href="/report">Report</a></b>: what ran, what it cost, what the assistant decided (with reasons) and what is waiting.</li>
+      <li><b><a href="/review">Review</a></b>: work through what's left. Most cards carry an <b>Assistant recommends</b> line; press <b>Confirm</b> if it is right, or choose another button and add a note.</li>
+      <li><b>Prospects</b>: open one or two "not yet worked" organisations from Home, read the page and its sources, and check <a href="/people?contactable=1">People → Ready to contact</a>.</li>
+    </ol>
+    <p>Weekly: look at <a href="/leverage">Leverage</a> and the <a href="/map">Map</a>.</p>
+  </section>
+
+  <section class="panel" id="team">
+    <h2>The Claude team</h2>
+    <ul>
+      <li><b>Researchers</b> (Sonnet for new companies, Opus for follow-up questions) look up each company on the web: lender type, owner, brands, loan range, states, partner lists, compliance notes. Every fact must quote a page they actually opened, or it is dropped. Facts arrive as <i>proposed</i> on a research card.</li>
+      <li><b>The manager</b> (the daily assistant, Opus) reads every open card. It applies only the clear-cut <b>safe</b> cases, recommends on the rest, and can send a card back to the researchers with up to three questions. The answers return on a new card linked to the original, and the manager looks again.</li>
+      <li><b>The daily Claude review</b> signs in as the user <i>claude</i>, works through the inbox and posts a short report to Notifications. It never changes users, budgets, weights or imports.</li>
+    </ul>
+    <p>You can send any card or organisation back yourself: <b>Ask the researchers</b> on a review card or organisation page. Choose a focus: owners and partners, the company profile, or decision-makers (names and titles).</p>
+  </section>
+
+  <section class="panel" id="schedules">
+    <h2>What runs by itself</h2>
+    <p>{% if admin %}<a href="/admin/research#schedules">Admin → Research &amp; budgets → Schedules</a>{% else %}Admin → Research &amp; budgets → Schedules{% endif %}. Jobs due together run top to bottom, so the assistant always runs last on the day's fresh research.</p>
+    <table class="compact"><thead><tr><th>Job</th><th>Usually</th><th>Cost</th></tr></thead><tbody>
+      <tr><td>Research the next companies (follow-up questions first)</td><td>Daily, 20 companies</td><td>About $0.40 a company</td></tr>
+      <tr><td>Fill website traffic (Ahrefs)</td><td>Daily</td><td>About 50 units a site</td></tr>
+      <tr><td>Search results snapshot (Ahrefs)</td><td>Weekly</td><td>About 300 units a keyword</td></tr>
+      <tr><td>Upkeep: duplicate check, partner check, re-score</td><td>Daily</td><td>Free</td></tr>
+      <tr><td>Contacts: decision-makers' work emails (Hunter)</td><td>Weekly, 10 companies</td><td>1 credit a company with results</td></tr>
+      <tr><td>Assistant: safe decisions, recommendations, daily report</td><td>Daily, last</td><td>A few cents a card</td></tr>
+    </tbody></table>
+    <p>To switch one on: tick <b>On</b>, set how often and the batch size, press <b>Save</b>. <b>Run now</b> runs it straight away. A job never runs twice at once, and a job whose API key is missing is skipped, not failed.</p>
+  </section>
+
+  <section class="panel" id="review">
+    <h2>Deciding review cards</h2>
+    <p>Type a note before you click: it goes in the audit log. A green <b>safe</b> chip is a clear case; <b>check first</b> means look before applying; no suggestion means it is your call.</p>
+    <h3>Possible matches (do these first)</h3>
+    <ul>
+      <li><b>Same: keep left / right</b>: one company with two records. The relationship carries over.</li>
+      <li><b>Left owns right / Right owns left</b>: a holding company and its trading brand. Links them instead of merging.</li>
+      <li><b>Related: keep held back</b>: a sister brand, servicer or same-tribe lender of a partner. Not the same company, but nobody should cold-call it.</li>
+      <li><b>Not related</b>: a lookalike. It goes back on the prospect lists.</li>
+    </ul>
+    <h3>Duplicates</h3>
+    <p>The same choices. Watch "same name, different websites": two companies, or a rebrand.</p>
+    <h3>Research findings</h3>
+    <ul>
+      <li><b>Accept these facts</b>: they are used and the organisation is re-scored. Approved decision-makers become people.</li>
+      <li><b>Accept and screen out</b>: keep the facts, take it off the lender and supply lists (apps, banks, non-lenders).</li>
+      <li><b>Reject</b>: discard the facts. With nothing found, the company is researched again later.</li>
+      <li>Follow-up cards show the <b>questions and answers</b> at the top, each with its source.</li>
+    </ul>
+    <p>If a role looks wrong after accepting, use <b>Remove</b> next to it on the organisation page. If a company was screened out by mistake, use <b>Undo screen-out</b> on its card.</p>
+    <h3>Low confidence and new entrants</h3>
+    <p>Approve a spreadsheet value if it looks right, reject it if not. New entrants are sites seen in search results for the first time: decide whether each is a lender, a traffic source or irrelevant.</p>
+  </section>
+
+  <section class="panel" id="partners">
+    <h2>The partner safeguard</h2>
+    <p>An organisation is <b>held back</b>, flagged <span class="chip warn">may already be a partner</span> and never looked up for contacts, when it has an open possible match, was marked <i>Related: keep held back</i>, owns one of our partners, or is owned by one. Don't contact it until that is resolved.</p>
+  </section>
+
+  <section class="panel" id="contacts">
+    <h2>Contacts</h2>
+    <p>For prospects scoring 60+ that pass the partner safeguard, aren't blocked or screened out and have a website, Hunter looks up the people it knows at that website. We keep up to 3, by title:</p>
+    <ol>
+      <li>Partnerships / affiliates / business development</li>
+      <li>Lead acquisition, performance or digital marketing</li>
+      <li>CMO, marketing, growth</li>
+      <li>CEO, founder, president, owner, general manager</li>
+      <li>COO, chief revenue officer, head of sales</li>
+    </ol>
+    <p>Never kept: shared inboxes (info@, sales@), invalid addresses, technology, finance, legal, HR, risk and customer-service roles, and roles outside the US. When Hunter finds nobody suitable, the researchers look for named decision-makers on company pages, press releases and filings (never LinkedIn); once you accept their card, the next contacts run finds the emails.</p>
+    <ul>
+      <li>Email chips: <span class="chip good">verified</span>, <span class="chip warn">catch-all</span> (the mail server accepts any address, so it can't be confirmed), <span class="chip warn">unverified</span>.</li>
+      <li><b>Find contacts</b> on an organisation page looks it up now. <b>Do not contact</b> works for a person or a whole organisation; they are kept on record so they are never looked up again.</li>
+      <li>To delete a person (for example, a deletion request), use <b>Delete</b> with the reason. Their email goes with them; the audit log keeps only the name and reason.</li>
+      <li>Names found by hand in Sales Navigator can be added under <b>Add a person</b>.</li>
+    </ul>
+  </section>
+
+  <section class="panel" id="notifications">
+    <h2>Notifications</h2>
+    <p>The bell shows unread notices: failed or skipped jobs, budget warnings, a review summary and the daily Claude report. A notice closes for everyone when its cards are decided, a newer report replaces it, or the job has since run cleanly. Admins can close one by hand with <b>Resolved</b>.</p>
+  </section>
+
+  <section class="panel" id="budgets">
+    <h2>Budgets and keys</h2>
+    <p>Each provider (Anthropic, Ahrefs, Hunter) has a monthly cap under Research &amp; budgets. Every job checks it before each paid call and stops cleanly (<i>budget_stopped</i>) instead of going over. API keys live in Railway → USA-Prospecting → Variables, never in the portal or in chat; the page only shows whether each is set. <b>Check Ahrefs plan</b> and <b>Check Hunter account</b> are free.</p>
+  </section>
+
+  <section class="panel" id="pages">
+    <h2>Pages</h2>
+    <ul>
+      <li><a href="/">Home</a>: what needs you, the best buyers and traffic sources we don't work with yet, recent changes.</li>
+      <li><a href="/lenders">Lenders</a> / <a href="/supply">Supply</a> / <a href="/people">People</a>: sortable tables with filters and CSV export.</li>
+      <li><b>Organisation page</b>: every fact with its source, scores and their parts, roles, relationships, people.</li>
+      <li><a href="/map">Map</a>: traffic sources → connectors → pingtrees → lenders. Owner groups fold; click to expand. Blue rings are possible partners.</li>
+      <li><a href="/states">States</a>: which states lenders serve. <a href="/leverage">Leverage</a>: owner groups and sources feeding several of our buyers.</li>
+      <li><a href="/review">Review</a>, <a href="/report">Report</a>, <a href="/notifications">Notifications</a>{% if admin %}, <a href="/admin/weights">Admin</a> (imports, weights, users, research &amp; budgets, schedules, audit){% endif %}.</li>
+    </ul>
+  </section>
+
+  <section class="panel" id="words">
+    <h2>Chips and words</h2>
+    <ul>
+      <li><b>live / paused / contracting / in talks / former</b>: our relationship, set only by a person.</li>
+      <li><b>Compliance blocked</b>: hidden from ranked lists. <b>review</b>: shown with a warning.</li>
+      <li><b>Score 25 ("unknown")</b>: no data yet for that part of the score, so thin records don't outrank researched ones.</li>
+      <li><b>proposed / accepted</b>: a fact waiting for a decision, or one in use.</li>
+    </ul>
+  </section>
+
+  <section class="panel" id="wrong">
+    <h2>If something goes wrong</h2>
+    <ul>
+      <li><b>A run failed</b>: the notice links to it; the error is in Recent runs on Research &amp; budgets.</li>
+      <li><b>budget_stopped</b>: the monthly cap was reached. Raise it, or wait for next month.</li>
+      <li><b>A schedule says skipped</b>: its API key isn't set in Railway, or it was already running.</li>
+      <li><b>A wrong merge or screen-out</b>: note the card number (on the card and in the audit log) and ask Claude; screen-outs can be undone from the card.</li>
+      <li><b>Numbers look off after uploading files in the wrong order</b>: Admin → Imports → Reset and re-import. It clears decisions, so do it before working through Review.</li>
+      <li><b>The site is down</b>: check the service in Railway. Backups run daily and weekly.</li>
+    </ul>
+  </section>
+  </div>
+</div>
+{% endblock %}

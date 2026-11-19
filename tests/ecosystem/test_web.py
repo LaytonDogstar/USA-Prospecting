@@ -60,7 +60,7 @@ def org_id(session, name):
 
 def test_requires_login(web):
     assert web.get("/healthz").text == "ok"
-    for path in ("/", "/lenders", "/supply", "/review", "/admin/weights", "/org/1"):
+    for path in ("/", "/lenders", "/supply", "/review", "/admin/weights", "/org/1", "/guide"):
         r = web.get(path, follow_redirects=False)
         assert r.status_code == 303 and r.headers["location"].startswith("/login"), path
 
@@ -71,6 +71,8 @@ def test_login_and_home(web):
     login(web)
     r = web.get("/")
     assert r.status_code == 200 and "What matters now" in r.text
+    g = web.get("/guide")
+    assert g.status_code == 200 and "Who can do what" in g.text and "(admin)" in g.text
     # Prairie is the top unworked buyer, but an open possible match says it may already be a partner:
     # it is held back from the list, with a warning pointing to Review
     assert "Sunrise Lending" not in r.text and "held back" in r.text

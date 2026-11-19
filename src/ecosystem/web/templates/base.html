@@ -22,6 +22,7 @@
     <a href="/people" class="{{ 'on' if path.startswith('/people') }}">People</a>
     <a href="/review" class="{{ 'on' if path.startswith('/review') }}">Review</a>
     <a href="/report" class="{{ 'on' if path.startswith('/report') }}">Report</a>
+    <a href="/guide" class="{{ 'on' if path.startswith('/guide') }}">Guide</a>
     {% if user.role == 'admin' %}<a href="/admin/weights" class="{{ 'on' if path.startswith('/admin') }}">Admin</a>{% endif %}
   </nav>
   <div class="who">{% set unread_n = request.state.unread if request.state.unread is defined else 0 %}

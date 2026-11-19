@@ -58,8 +58,8 @@ def create_app() -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
-    from .routes import admin, api, auth, entity, home, maps, notifications, report, review, tables
-    for module in (auth, home, tables, maps, entity, review, report, notifications, admin, api):
+    from .routes import admin, api, auth, entity, guide, home, maps, notifications, report, review, tables
+    for module in (auth, home, tables, maps, entity, review, report, notifications, guide, admin, api):
         app.include_router(module.router)
 
     from .. import scheduler
