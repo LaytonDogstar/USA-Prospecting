@@ -76,6 +76,15 @@
   </div>
 </section>
 
+<section class="panel" style="margin-top:16px" id="next-up">
+  <h2>Next up for research <span class="small muted">new companies the next run takes after any questions sent back</span></h2>
+  {% if not next_up %}<p class="small muted">No good targets left: the research run will be smaller until search results, partner lists or imports add more.</p>{% else %}
+  <table class="compact small"><thead><tr><th>Company</th><th>Why</th></tr></thead><tbody>
+  {% for o, why in next_up %}<tr><td><a href="/org/{{ o.id }}">{{ o.display_name }}</a></td><td>{{ why }}</td></tr>{% endfor %}
+  </tbody></table>{% endif %}
+  <p class="small muted">Order: on a lead source's partner list or tribal; ranking for tracked keywords; buying search ads or on the lead-buying index; then CFPB companies with small-dollar complaints. Banks, mortgage, auto, student-loan, collections and law-firm names are skipped unless one of the first three applies; traffic sources and unclassified new entrants are never sent to lender research.</p>
+</section>
+
 <section class="panel" style="margin-top:16px" id="requests">
   <h2>Sent back for research <span class="small muted">{{ requests | selectattr('0.status', 'equalto', 'queued') | list | length }} waiting · taken first by the next research run</span></h2>
   {% if not requests %}<p class="small muted">Nothing yet. The manager (and you, from any review card) can send a card back with specific questions.</p>{% else %}

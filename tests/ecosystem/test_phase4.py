@@ -393,3 +393,37 @@ def test_research_targets_likely_buyers_first(store, targets_file):
     store.claim(last.id, "appears_on_partner_lists", [{"domain": "source.example"}], src, confidence="high", method="import:v1")
     s.flush()
     assert pilot_targets(s, 50)[0].id == last.id
+
+
+def test_research_targets_follow_signals(store, targets_file):
+    """Ranking for tracked keywords beats complaints; traffic sources, unlikely names and open new entrants are skipped."""
+    from datetime import date
+    from ecosystem.research import pilot_targets
+    import_targets(store, targets_file)
+    s = store.s
+    src = store.url_source("https://api.ahrefs.example/serp", "ahrefs")
+
+    def ranks(org, host, keywords):
+        store.add_domain(org.id, host, primary=True)
+        d = s.scalar(select(m.Domain).where(m.Domain.hostname == host))
+        page = m.Page(id=store._entity("page"), domain_id=d.id, url=f"https://{host}/", page_type="serp_result")
+        s.add(page)
+        s.flush()
+        for kw in keywords:
+            store.metric(page.id, f"serp_position:{kw}", 3, date.today(), src, None)
+
+    ranker = store.new_org("Kestrel Cash")            # not in the CFPB list, but ranks for two keywords
+    ranks(ranker, "kestrelcash.example", ["payday loans online", "installment loans"])
+    affiliate = store.new_org("Loan Compare Hub")     # ranks too, but it is a traffic source
+    ranks(affiliate, "loancomparehub.example", ["payday loans online"])
+    store.role(affiliate.id, "comparison_offer_wall", None)
+    collector = store.new_org("Plover Recovery Associates")
+    s.flush()
+    picked = pilot_targets(s, 50, explain=True)
+    ids = [o.id for o, _ in picked]
+    assert ids[0] == ranker.id or dict((o.id, w) for o, w in picked)[ids[0]] == "partner list or tribal"
+    assert dict((o.id, w) for o, w in picked)[ranker.id] == "ranks for 2 tracked keywords"
+    assert affiliate.id not in ids and collector.id not in ids
+    # a site still waiting as a new entrant is left for a person to classify first
+    store.review("new_entrant", "new_entrant:serp:kestrelcash.example", "New in search results", [ranker.id], {})
+    assert ranker.id not in {o.id for o in pilot_targets(s, 50)}

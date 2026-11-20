@@ -22,6 +22,7 @@ from . import parsing as p
 from .importers import link_group
 from .jobs import job
 from .normalise import norm_domain
+from .scoring import SUPPLY_ROLES
 from .store import Store
 
 log = logging.getLogger("ecosystem.research")
@@ -384,42 +385,86 @@ def linked_answers(s, review_item_id: int) -> list[dict]:
     return out
 
 
-TARGET_DEPRIORITISE = (r"\m(bank|bancorp|bancshares|mortgage|home loans?|credit union|federal|auto|motor|student|"
-                       r"education|leasing|insurance|servicing|recovery|collections?|capital one|discover|synchrony)\M")
+TARGET_DEPRIORITISE = (r"\m(bank|bancorp|bancshares|bankshares|mortgage|mtg|home loans?|credit union|federal|auto|motor|"
+                       r"student|education|edfinancial|leasing|insurance|servicing|recovery|collections?|receivables?|"
+                       r"revenue|debt|account management|attorneys?|law|legal|associates|capital one|discover|"
+                       r"synchrony|recreational|marine|rv)\M")
+
+# why a company is worth a research pass, strongest first (it explains each pick in the run log)
+TARGET_SIGNALS_SQL = """
+  (EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = o.id AND ec.attribute = 'appears_on_partner_lists')
+   OR EXISTS (SELECT 1 FROM org_role r WHERE r.organisation_id = o.id AND r.tribe_id IS NOT NULL)
+   OR EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = o.id AND ec.attribute = 'tribe')) AS buyer_signal,
+  (SELECT count(DISTINCT ms.metric) FROM domain d JOIN page pg ON pg.domain_id = d.id
+     JOIN metric_snapshot ms ON ms.entity_id = pg.id AND ms.metric LIKE 'serp_position:%'
+   WHERE d.organisation_id = o.id) AS serp_keywords,
+  (SELECT (ms.value)::numeric FROM metric_snapshot ms WHERE ms.entity_id = o.id AND ms.metric = 'ahrefs_paid_spend_usd'
+   ORDER BY ms.retrieved_at DESC, ms.id DESC LIMIT 1) AS paid_spend,
+  EXISTS (SELECT 1 FROM score sc WHERE sc.entity_id = o.id AND sc.score_type = 'lbs_index') AS on_lbs_index"""
 
 
-def pilot_targets(s, n: int) -> list[m.Organisation]:
-    """Unresearched CFPB companies most likely to buy our leads first:
+def pilot_targets(s, n: int, explain: bool = False) -> list:
+    """Unresearched companies most likely to be lenders that buy our leads, strongest evidence first:
     1. already seen buying (named on a lead source's partner list) or tribal (online small-dollar lenders);
-    2. not obviously a bank, mortgage, auto, student-loan or collections business (by name);
-    3. most payday / instalment / line-of-credit complaints (small-dollar consumer lending), then total complaints."""
+    2. ranking in Google for our tracked keywords (most keywords first);
+    3. paying for search ads, or on the lead-buying strength index;
+    4. CFPB companies with small-dollar (payday / instalment / line-of-credit) complaints.
+    Companies with none of signals 1-3 whose name says bank, mortgage, auto, student loans, collections, law firm and
+    so on are left out altogether, and so are traffic sources (supply roles) and sites still waiting as new entrants:
+    the lender research would screen those out wrongly. When the good targets run out, the batch is simply smaller.
+    explain=True returns (organisation, reason) pairs."""
     if n <= 0:
         return []
-    ids = [r[0] for r in s.execute(text("""
-        SELECT o.id FROM organisation o
-        JOIN entity_current st ON st.entity_id = o.id AND st.attribute = 'sheet_universe_status'
-             AND st.value = '"candidate - not yet researched"'::jsonb
+    rows = s.execute(text(f"""
+        SELECT o.id, sig.buyer_signal, sig.serp_keywords, sig.paid_spend, sig.on_lbs_index, coalesce(sd.v, 0) AS small_dollar,
+               (coalesce(o.legal_name, o.display_name) ~* :deprioritise) AS unlikely_name
+        FROM organisation o
+        CROSS JOIN LATERAL (SELECT {TARGET_SIGNALS_SQL}) sig
+        LEFT JOIN entity_current st ON st.entity_id = o.id AND st.attribute = 'sheet_universe_status'
         LEFT JOIN LATERAL (SELECT value FROM metric_snapshot WHERE entity_id = o.id AND metric = 'cfpb_complaints_12m'
                            ORDER BY retrieved_at DESC LIMIT 1) c ON true
-        LEFT JOIN LATERAL (SELECT sum(CASE WHEN jsonb_typeof(ec.value) = 'number' THEN (ec.value #>> '{}')::numeric END) AS v
+        LEFT JOIN LATERAL (SELECT sum(CASE WHEN jsonb_typeof(ec.value) = 'number' THEN (ec.value #>> '{{}}')::numeric END) AS v
                            FROM entity_current ec WHERE ec.entity_id = o.id AND ec.attribute IN
                            ('cfpb_complaints_payday_12m', 'cfpb_complaints_installment_12m', 'cfpb_complaints_loc_12m')) sd ON true
         LEFT JOIN compliance_status cs ON cs.entity_id = o.id
         WHERE o.lifecycle IN ('active','candidate') AND cs.value IS DISTINCT FROM 'blocked'
+          AND NOT EXISTS (SELECT 1 FROM our_relationship r WHERE r.organisation_id = o.id)
+          AND NOT EXISTS (SELECT 1 FROM org_role r WHERE r.organisation_id = o.id AND r.role = ANY(:supply))
+          AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.kind = 'new_entrant' AND ri.status = 'open'
+                          AND o.id = ANY(ri.entity_ids))
+          -- the spreadsheet's unresearched candidates, plus companies found since (search results, partner lists)
+          -- that nobody has researched; rows the spreadsheet already researched are left alone
+          AND (st.value = '"candidate - not yet researched"'::jsonb
+               OR (st.value IS NULL AND (sig.buyer_signal OR sig.serp_keywords > 0
+                                         OR coalesce(sig.paid_spend, 0) > 0 OR sig.on_lbs_index)))
           AND (SELECT count(*) FROM job_run jr, jsonb_array_elements(jr.errors) e
                WHERE jr.job = 'research' AND jr.started_at > now() - interval '14 days'
                  AND (e->>'org_id')::bigint = o.id AND e->>'message' LIKE '%web search failed%') < :max_failed
           AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.kind = 'research' AND o.id = ANY(ri.entity_ids)
                           -- a rejected pass that found nothing is tried again
-                          AND NOT (ri.status = 'rejected' AND coalesce(ri.payload->'counts', '{}'::jsonb) = '{}'::jsonb))
-        ORDER BY
-          (EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = o.id AND ec.attribute = 'appears_on_partner_lists')
-           OR EXISTS (SELECT 1 FROM org_role r WHERE r.organisation_id = o.id AND r.tribe_id IS NOT NULL)
-           OR EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = o.id AND ec.attribute = 'tribe')) DESC,
-          (coalesce(o.legal_name, o.display_name) ~* :deprioritise) ASC,
-          coalesce(sd.v, 0) DESC, c.value DESC NULLS LAST, o.id
-        LIMIT :n"""), {"n": n, "max_failed": MAX_FAILED_DAYS, "deprioritise": TARGET_DEPRIORITISE})]
-    return [s.get(m.Organisation, i) for i in ids]
+                          AND NOT (ri.status = 'rejected' AND coalesce(ri.payload->'counts', '{{}}'::jsonb) = '{{}}'::jsonb))
+        ORDER BY sig.buyer_signal DESC, sig.serp_keywords DESC,
+                 (coalesce(sig.paid_spend, 0) > 0 OR sig.on_lbs_index) DESC,
+                 coalesce(sd.v, 0) DESC, c.value DESC NULLS LAST, o.id
+        LIMIT :pool"""), {"pool": n * 5 + 50, "max_failed": MAX_FAILED_DAYS, "deprioritise": TARGET_DEPRIORITISE,
+                          "supply": list(SUPPLY_ROLES)}).mappings().all()
+    picked = []
+    for r in rows:
+        strong = r["buyer_signal"] or r["serp_keywords"] or (r["paid_spend"] or 0) > 0 or r["on_lbs_index"]
+        if r["unlikely_name"] and not strong:
+            continue
+        if not strong and not r["small_dollar"]:
+            continue  # a CFPB company with no small-dollar complaints and nothing else pointing to lead buying
+        why = ("partner list or tribal" if r["buyer_signal"] else
+               f"ranks for {r['serp_keywords']} tracked keyword{'s' if r['serp_keywords'] != 1 else ''}" if r["serp_keywords"] else
+               "buys search ads" if (r["paid_spend"] or 0) > 0 else
+               "on the lead-buying index" if r["on_lbs_index"] else
+               f"{int(r['small_dollar'])} small-dollar complaints")
+        picked.append((r["id"], why))
+        if len(picked) >= n:
+            break
+    out = [(s.get(m.Organisation, i), why) for i, why in picked]
+    return out if explain else [o for o, _ in out]
 
 
 def research_batch(store: Store, n: int = 20, client=None, model: str = DEFAULT_MODEL, org_ids: list[int] | None = None) -> dict:
@@ -436,7 +481,15 @@ def research_batch(store: Store, n: int = 20, client=None, model: str = DEFAULT_
                                     .order_by(m.ResearchRequest.id).limit(n)))
             tasks = [(store.org(r.organisation_id), r) for r in queued]
             busy = {o.id for o, _ in tasks}
-            tasks += [(o, None) for o in pilot_targets(s, n - len(tasks)) if o.id not in busy] if len(tasks) < n else []
+            picks = pilot_targets(s, n - len(tasks), explain=True) if len(tasks) < n else []
+            tasks += [(o, None) for o, _ in picks if o.id not in busy]
+            out["why"] = {}
+            for _, why in picks:
+                key = why if not why.endswith("complaints") else "small-dollar complaints"
+                key = "ranks for tracked keywords" if key.startswith("ranks for") else key
+                out["why"][key] = out["why"].get(key, 0) + 1
+            if len(tasks) < n:
+                out["short_of_targets"] = n - len(tasks)
         out["requests"] = sum(1 for _, r in tasks if r is not None)
         last_error, repeats = None, 0
         for org, req in tasks:

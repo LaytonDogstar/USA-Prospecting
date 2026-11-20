@@ -111,8 +111,10 @@ Display names: `normalise.friendly_name` shows the trading brand when the record
 
 Scoring rules: lead-buying uses the Lead-buying strength index when there is one, otherwise cited research evidence
 (`scoring.research_lead_buying`: partner lists, lead-buying evidence, affiliate programme; at most 85); segment falls back
-to the researched segment text. Research targets likely buyers first (`research.pilot_targets`: on a lead source's
-partner list or tribal, not bank/mortgage/auto by name, most small-dollar complaints). Components score 0-100. A component nobody has data for yet (state overlap, traffic overlap: they need the internal source) is left out for everyone; a component missing for one organisation scores 25 ("unknown") so thin records don't outrank researched ones. Compliance is a gate, not a component: `blocked` is hidden from ranked views by default, `review` shows a warning.
+to the researched segment text. Research targets likely buyers first (`research.pilot_targets`: partner list or tribal, then ranking for tracked
+keywords, then paid search / lead-buying index, then CFPB small-dollar complaints; unlikely names (bank, mortgage, auto,
+collections, law firm…) only with a signal; never supply-role orgs or open new entrants; a smaller batch when targets run out;
+"Next up for research" on Admin → Research & budgets shows the queue and why). Components score 0-100. A component nobody has data for yet (state overlap, traffic overlap: they need the internal source) is left out for everyone; a component missing for one organisation scores 25 ("unknown") so thin records don't outrank researched ones. Compliance is a gate, not a component: `blocked` is hidden from ranked views by default, `review` shows a warning.
 
 Web rules: every page needs a session except `/login`, `/healthz`, `/static`. Viewers read the map, tables, People and organisation pages; Review, Report, Notifications, Guide, the JSON API and Admin are admin-only (`deps.admin_view`). Admins edit. Every POST goes through `admin_user` (role + CSRF). Every edit writes `audit_log`. Merges and links only happen from a review decision.
 
