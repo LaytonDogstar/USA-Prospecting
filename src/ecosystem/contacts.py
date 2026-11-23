@@ -37,7 +37,8 @@ TITLE_RULES = [
     (r"lead (?:gen|generation|acquisition|buying|partnerships|purchasing)|\bleads\b|acquisition|performance|paid (?:media|search)|media buy|digital marketing|demand gen", 90,
      "acquisition_performance"),
     (r"\bcmo\b|chief marketing|growth|marketing", 80, "growth_cmo"),
-    (r"\bceo\b|chief executive|founder|president|owner|managing director|general manager|\bgm\b", 70, "ceo_gm"),
+    (r"\bceo\b|chief executive|founder|(?<!vice )(?<!vice-)\bpresident\b|\bowner\b|managing director", 70, "ceo_gm"),
+    (r"^(?:(?!vice).)*\b(?:general manager|\bgm\b)", 40, "ceo_gm"),  # often a store manager at a large chain
     (r"\bcoo\b|chief operating|chief revenue|\bcro\b|head of (?:sales|revenue)|vp,? sales|sales director", 60,
      "ceo_gm"),
     (r"servicing|origination", 40, "servicer_acquisition"),
@@ -46,7 +47,9 @@ SENIOR = {"executive": 30, "senior": 15}
 # titles that are never the right first contact, and roles outside the US
 EXCLUDE_TITLE = re.compile(r"technolog|engineer|developer|software|\bit\b|information|data|security|project|product "
                            r"manag|analyst|recruit|talent|human resources|\bhr\b|people|finance|accounting|"
-                           r"controller|treasur|legal|counsel|attorney|risk|collections|customer service|support|"
+                           r"controller|treasur|legal|counsel|attorney|risk|collections|customer service|support|store|branch|district|"
+                           r"region(?:al)? manager|operations manager|^(?:senior |executive |assistant )?vice president$|"
+                           r"^(?:senior |executive )?vp$|"
                            r"\b(?:uk|emea|europe|apac|canada|australia|brazil|mexico|india|latam)\b", re.I)
 GENERIC_LOCAL = re.compile(r"^(info|support|help|hello|contact|admin|sales|service|customerservice|cs|team|office|"
                            r"marketing|privacy|legal|compliance|jobs|careers|hr|billing|noreply|no-reply)\b", re.I)

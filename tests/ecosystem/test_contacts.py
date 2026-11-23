@@ -48,6 +48,10 @@ def test_rank_and_pick_drop_generic_and_irrelevant():
     assert rank_title("Vice President of Technology", "executive")[0] == 0
     assert rank_title("UK Managing Director")[0] == 0
     assert rank_title("Director of Operations", "executive")[0] == 0
+    assert rank_title("Vice President")[0] == 0 and rank_title("Senior Vice President", "executive")[0] == 0
+    assert rank_title("Vice President of Marketing")[1] == "growth_cmo"
+    assert rank_title("President")[1] == "ceo_gm" and rank_title("Store General Manager")[0] == 0
+    assert 0 < rank_title("General Manager")[0] < rank_title("Marketing Director")[0]
     assert pick([_email("wren@wrenloans.example", "Wren", "Ops", "Marketing Director")]) == []
     got = pick([
         _email("info@wrenloans.example", "Info", "Desk", "Marketing"),
