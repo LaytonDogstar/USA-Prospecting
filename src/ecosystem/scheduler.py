@@ -70,8 +70,9 @@ def upkeep(store: Store) -> dict:
     from .matching import name_dedup_suggestions, possible_match_sweep, shared_key_suggestions
     from .scoring import rescore
     with job(store.s, "upkeep", {}, store.actor) as ctx:
-        from .research import backfill_state_counts, cleanup_sentence_orgs
+        from .research import backfill_state_counts, cleanup_sentence_orgs, restore_debt_relief
         out = {"sentence_orgs": cleanup_sentence_orgs(store), "state_counts": backfill_state_counts(store),
+               "debt_relief_restored": restore_debt_relief(store),
                "shared_key_suggestions": shared_key_suggestions(store), "name_dedup": name_dedup_suggestions(store),
                "possible_match_sweep": possible_match_sweep(store), "rescore": rescore(store, audit=False)}
         ctx.run.args = {**ctx.run.args, "result": out}

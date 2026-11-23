@@ -15,7 +15,7 @@ from .normalise import contains_name, name_similarity, norm_name
 from .store import Store
 
 NON_LENDER_CATEGORIES = {"fintech_app", "bank_or_credit_union", "not_a_lender"}
-LENDER_CATEGORIES = {"tribal", "state_licensed", "bank_partner", "cab_cso", "servicer"}
+LENDER_CATEGORIES = {"tribal", "state_licensed", "bank_partner", "cab_cso", "servicer", "debt_relief"}  # buyers
 
 
 class DecisionError(ValueError):
@@ -110,14 +110,17 @@ def suggest(store: Store, it: m.ReviewItem, summ: dict) -> dict | None:
                            + (f" (but it has {cited_answers} cited answer{'s' if cited_answers != 1 else ''}: "
                               "read them first)" if cited_answers else ""),
                     "safe": not cited_answers}
-        if cat in NON_LENDER_CATEGORIES or (it.payload.get("is_us_consumer_lender") is False and cat != "unclear"):
+        if cat in NON_LENDER_CATEGORIES or (it.payload.get("is_us_consumer_lender") is False
+                                            and cat not in LENDER_CATEGORIES and cat != "unclear"):
             return {"action": "screen", "label": "Accept and screen out",
                     "why": f"research says it isn't a US consumer lender ({(cat or 'not a lender').replace('_', ' ')}), "
                            f"with {facts} cited fact{'s' if facts != 1 else ''}",
                     "safe": facts >= 2 and not it.payload.get("rejected_uncited")}
         if cat in LENDER_CATEGORIES and facts >= 2 and not it.payload.get("rejected_uncited"):
             return {"action": "approve", "label": "Accept these facts",
-                    "why": f"{cat.replace('_', ' ')} lender, {facts} cited facts, none dropped", "safe": True}
+                    "why": (f"debt relief: a buyer of declined-loan traffic (offer walls), {facts} cited facts, none dropped"
+                            if cat == "debt_relief" else f"{cat.replace('_', ' ')} lender, {facts} cited facts, none dropped"),
+                    "safe": True}
         return None
     return None
 

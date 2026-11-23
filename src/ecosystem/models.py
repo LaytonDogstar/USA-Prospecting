@@ -32,6 +32,7 @@ ROLES = (
     "lender_tribal", "lender_state_licensed", "lender_bank_partner", "lender_cab_cso", "servicer",
     "lead_network_pingtree", "connector_brand", "comparison_offer_wall", "content_affiliate",
     "sponsored_publisher_agency", "affiliate_cpa_network", "paid_media_platform", "fintech_decline_source",
+    "debt_relief",  # debt relief / settlement / credit counselling: buys declined-loan traffic, e.g. on offer walls
 )
 EDGE_TYPES = (
     "owns", "operates", "same_owner_as", "sells_leads_to", "buys_leads_from", "lists_offer_of",

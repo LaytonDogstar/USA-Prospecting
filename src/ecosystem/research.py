@@ -43,6 +43,7 @@ LENDER_CATEGORIES = {
     "tribal": "lender_tribal", "state_licensed": "lender_state_licensed", "bank_partner": "lender_bank_partner",
     "cab_cso": "lender_cab_cso", "servicer": "servicer", "fintech_app": None, "bank_or_credit_union": None,
     "not_a_lender": None, "unclear": None,
+    "debt_relief": "debt_relief",  # not a lender, but a buyer of declined-loan traffic (offer walls)
 }
 
 ATTRIBUTES = {  # finding attribute -> what the researcher should report (also the claim attribute it becomes)
@@ -85,7 +86,9 @@ Rules:
 - lender_category: tribal (tribally owned lender), state_licensed (licensed by the states it lends in),
   bank_partner (loans originated by a partner bank), cab_cso (Texas/Ohio credit access business), servicer (services
   loans for others), fintech_app (cash-advance or banking app, not a lender of instalment/payday loans),
-  bank_or_credit_union, not_a_lender (investor, debt buyer, marketplace, collector), or unclear.
+  bank_or_credit_union, debt_relief (debt settlement, debt relief or consolidation programmes, credit counselling:
+  not a lender, but it buys traffic from people declined for loans), not_a_lender (investor, debt buyer,
+  marketplace, collector), or unclear.
 - When you have finished, call record_findings exactly once. If you found nothing reliable, call it with an empty
   findings list."""
 
@@ -387,7 +390,7 @@ def linked_answers(s, review_item_id: int) -> list[dict]:
 
 TARGET_DEPRIORITISE = (r"\m(bank|bancorp|bancshares|bankshares|mortgage|mtg|home loans?|credit union|federal|auto|motor|"
                        r"student|education|edfinancial|leasing|insurance|servicing|recovery|collections?|receivables?|"
-                       r"revenue|debt|account management|attorneys?|law|legal|associates|capital one|discover|"
+                       r"revenue|debt (?:collect|buy|recover)\w*|account management|attorneys?|law|legal|associates|capital one|discover|"
                        r"synchrony|recreational|marine|rv)\M")
 
 # why a company is worth a research pass, strongest first (it explains each pick in the run log)
@@ -609,6 +612,9 @@ def apply_research(store: Store, item: m.ReviewItem) -> int:
         elif c.attribute == "litigation_note":
             for flag in p.compliance_flags(val) or ["other"]:
                 store.compliance_flag(org.id, flag, val, c)
+    cat = item.payload.get("lender_category")
+    if cat == "debt_relief" and "debt_relief" not in roles and claims:  # a buyer even without a lender-type fact
+        store.role(org.id, "debt_relief", next((c for c in claims if c.attribute == "description"), claims[0]))
     if lo is not None or hi is not None:
         for r in store.s.scalars(select(m.OrgRole).where(m.OrgRole.organisation_id == org.id)):
             r.loan_min, r.loan_max = r.loan_min or lo, r.loan_max or hi
@@ -635,6 +641,43 @@ def add_researched_person(store: Store, org: m.Organisation, val: str, src: m.So
     store.s.add(person)
     store.s.flush()
     return person
+
+
+DEBT_RELIEF_TEXT = re.compile(r"debt (?:relief|settlement|consolidation|resolution|management plan)|credit counsel", re.I)
+
+
+def restore_debt_relief(store: Store) -> dict:
+    """Debt relief and credit counselling companies are buyers for us (declined-loan traffic on offer walls). Put back
+    any that research screened out as 'not a lender' and ask the researchers to look again, so the card comes back
+    with the debt_relief category. Idempotent: only screened-out organisations whose screen-out reason or research
+    summary says debt relief / settlement / consolidation / credit counselling."""
+    from .decisions import DecisionError, undo_screen
+    out = {"restored": 0, "asked": 0}
+    for org in list(store.s.scalars(select(m.Organisation).where(m.Organisation.lifecycle == "screened_out"))):
+        items = list(store.s.scalars(select(m.ReviewItem).where(
+            m.ReviewItem.kind == "research", m.ReviewItem.status == "approved",
+            m.ReviewItem.entity_ids.contains([org.id])).order_by(m.ReviewItem.id.desc())))
+        reason = store.s.scalar(select(m.Claim.value).where(m.Claim.entity_id == org.id,
+                                                            m.Claim.attribute == "screen_out_reason",
+                                                            m.Claim.status == "accepted").order_by(m.Claim.id.desc()))
+        texts = [str(reason or "")] + [str(i.payload.get("summary") or "") for i in items]
+        if not any(DEBT_RELIEF_TEXT.search(x) for x in texts) or not items:
+            continue
+        try:
+            undo_screen(store, items[0], "debt relief / credit counselling companies are potential buyers (offer walls)")
+        except DecisionError:
+            continue
+        out["restored"] += 1
+        if not store.s.scalar(select(m.ResearchRequest.id).where(m.ResearchRequest.organisation_id == org.id,
+                                                                 m.ResearchRequest.status.in_(("queued", "running")))):
+            ask(store, org.id, ["What debt relief, debt settlement, consolidation or credit counselling services does it "
+                                "offer US consumers, and where (states)?",
+                                "Does it advertise on loan comparison sites or offer walls, run an affiliate programme or "
+                                "buy leads?"], mode="profile",
+                context="Previously screened out as not a lender; debt relief companies count as buyers for us.",
+                model=DEFAULT_MODEL)
+            out["asked"] += 1
+    return out
 
 
 def screen_out(store: Store, org: m.Organisation, reason: str) -> None:

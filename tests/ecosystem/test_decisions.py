@@ -93,3 +93,41 @@ def test_failed_research_is_never_screened_out_and_can_be_undone(store):
     assert store.org(o.id).lifecycle == "screened_out"
     undo_screen(store, thin, "was a lender")
     assert store.org(o.id).lifecycle == "candidate" and thin.status == "rejected"
+
+
+def test_debt_relief_is_a_buyer_not_screened_out(store):
+    from ecosystem.decisions import decide, suggest
+    from ecosystem.research import restore_debt_relief, screen_out
+    from ecosystem.scoring import rescore
+    org = store.new_org("Wren Debt Help")
+    store.s.flush()
+    src = store.url_source("https://www.wrendebthelp.example/about", "site_read")
+    for attr, val in (("description", "Debt settlement programme for US consumers"), ("website", "wrendebthelp.example")):
+        c = store.claim(org.id, attr, {"value": val, "quote": val}, src, confidence="high", method="research:x:v1",
+                        status="proposed")
+        c.job_run_id = 7
+    it = store.review("research", f"research:{org.id}:7", "Research found 2 facts", [org.id],
+                      {"run": 7, "counts": {"description": 1, "website": 1}, "lender_category": "debt_relief",
+                       "is_us_consumer_lender": False, "summary": "A debt settlement company."})
+    s = suggest(store, it, {})
+    assert s["action"] == "approve" and s["safe"]
+    decide(store, it, "approve", "test")
+    roles = {r.role for r in store.s.scalars(select(m.OrgRole).where(m.OrgRole.organisation_id == org.id))}
+    assert roles == {"debt_relief"}
+    rescore(store, org_ids={org.id}, audit=False)
+    assert store.s.scalar(select(m.Score.value).where(m.Score.entity_id == org.id, m.Score.score_type == "buyer_value"))
+
+    # one screened out earlier as "not a lender" is put back and sent to the researchers
+    old = store.new_org("Teal Credit Counselling")
+    store.s.flush()
+    it2 = store.review("research", f"research:{old.id}:8", "Research found 2 facts", [old.id],
+                       {"run": 8, "counts": {"description": 2}, "lender_category": "not_a_lender",
+                        "summary": "A non-profit credit counselling agency."})
+    it2.status = "approved"
+    screen_out(store, old, "Not a US consumer lender (research)")
+    store.s.flush()
+    out = restore_debt_relief(store)
+    assert out == {"restored": 1, "asked": 1}
+    store.s.refresh(old)
+    assert old.lifecycle != "screened_out"
+    assert restore_debt_relief(store) == {"restored": 0, "asked": 0}

@@ -102,7 +102,7 @@ tests/ecosystem/ pytest; conftest builds made-up workbooks. test_acceptance_real
                  when the real files and data/reference/acceptance.json are present.
 ```
 
-Who is a lender: a researched lender role, or a lead-buying index with no supply role (`scoring.is_lender`, `footprint.LENDER_SQL`); marketplaces on lead-buying lists are supply. Price/volume fit peaks at $1,000-5,000 max loans and falls for prime-sized loans. Supply traffic is whole-site, so it counts only in part by category (`TRAFFIC_LOAN_SHARE`) until Phase 4 page-level sizing.
+Who is a lender (a buyer): a researched lender role (including `debt_relief`: debt relief / settlement / credit counselling, which buys declined-loan traffic on offer walls and is never screened out; `research.restore_debt_relief` in upkeep puts back any that were), or a lead-buying index with no supply role (`scoring.is_lender`, `footprint.LENDER_SQL`); marketplaces on lead-buying lists are supply. Price/volume fit peaks at $1,000-5,000 max loans and falls for prime-sized loans. Supply traffic is whole-site, so it counts only in part by category (`TRAFFIC_LOAN_SHARE`) until Phase 4 page-level sizing.
 
 Existing-partner safeguard: an organisation with an open `possible_match` review item, or a `partner_related` fact
 (set by the "Related: keep held back" decision for sister brands, servicers and same-tribe lenders of a partner), is held back from Home's "not yet worked" lists and flagged "may already be a partner" in tables, on its page and on the map. Nobody should cold-call a possible partner.

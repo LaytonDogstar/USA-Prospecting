@@ -11,7 +11,7 @@ ROLE_LABELS = {
     "connector_brand": "Connector brand", "comparison_offer_wall": "Comparison / offer wall",
     "content_affiliate": "Content affiliate", "sponsored_publisher_agency": "Sponsored publisher / agency",
     "affiliate_cpa_network": "Affiliate / CPA network", "paid_media_platform": "Paid media",
-    "fintech_decline_source": "Fintech / decline source",
+    "fintech_decline_source": "Fintech / decline source", "debt_relief": "Debt relief (offer-wall buyer)",
 }
 
 BASE = """

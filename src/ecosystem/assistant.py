@@ -64,7 +64,9 @@ What the decisions mean:
   servicer, is "related_hold" (stays held back), not "not_related".
 - Duplicates: two records that may be the same company.
 - Research: facts a researcher found, each with a quote and the page it came from. Accept when the quotes support
-  the values; screen out when it is clearly not a US consumer lender (an app, a bank, a marketplace); reject when
+  the values; screen out when it is clearly not a US consumer lender (an app, a bank, a marketplace); debt relief, debt
+  settlement and credit-counselling companies are buyers for us (they buy declined-loan traffic on offer walls), so
+  accept them, never screen them out; reject when
   the facts look wrong or belong to a different company.
 - Other cards (unverified research, cells that need reading, new entrants, material changes): accept when the value
   looks right, reject when it doesn't.
