@@ -22,7 +22,7 @@ from . import parsing as p
 from .importers import link_group
 from .jobs import job
 from .normalise import norm_domain
-from .scoring import SUPPLY_ROLES
+from .scoring import LENDER_ROLES as LENDER_ROLES_FOR_WEBSITE, SUPPLY_ROLES
 from .store import Store
 
 log = logging.getLogger("ecosystem.research")
@@ -678,6 +678,26 @@ def restore_debt_relief(store: Store) -> dict:
                 model=DEFAULT_MODEL)
             out["asked"] += 1
     return out
+
+
+def ask_missing_websites(store: Store, limit: int = 10) -> int:
+    """Researched lenders named on a lead source's partner list but with no website on record: ask the researchers for
+    it (traffic and contact lookups need one). One question per company, ever; at most `limit` a day."""
+    s = store.s
+    rows = s.execute(text("""
+        SELECT o.id FROM organisation o
+        WHERE o.lifecycle IN ('active', 'candidate')
+          AND EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = o.id AND ec.attribute = 'appears_on_partner_lists')
+          AND EXISTS (SELECT 1 FROM org_role r WHERE r.organisation_id = o.id AND r.role = ANY(:buyer))
+          AND NOT EXISTS (SELECT 1 FROM domain d WHERE d.organisation_id = o.id)
+          AND NOT EXISTS (SELECT 1 FROM research_request rr WHERE rr.organisation_id = o.id
+                          AND (rr.status IN ('queued', 'running') OR rr.context LIKE 'No website on record%'))
+        ORDER BY o.id LIMIT :lim"""), {"buyer": list(LENDER_ROLES_FOR_WEBSITE), "lim": limit}).scalars().all()
+    for oid in rows:
+        ask(store, oid, ["What is its main consumer website (domain), where people apply for its loans or services?",
+                         "Which other consumer brands or websites does it run, if any?"], mode="profile",
+            context="No website on record: needed for traffic figures and contact lookups.", model=DEFAULT_MODEL)
+    return len(rows)
 
 
 def screen_out(store: Store, org: m.Organisation, reason: str) -> None:

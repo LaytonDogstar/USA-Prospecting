@@ -163,3 +163,22 @@ def test_card_with_cited_answers_is_not_safely_rejected(store):
                       {"run": 1, "counts": {}, "answers": [{"question": "q", "answer": "Lou Hart, COO", "cited": True}]})
     s = suggest(store, it, {})
     assert s["action"] == "reject" and s["safe"] is False
+
+
+def test_partner_list_lender_qualifies_from_50_and_missing_website_is_asked(store):
+    from ecosystem.research import ask_missing_websites
+    listed = _prospect(store, "Lark Loans", "larkloans.example", score=52)
+    src = store.url_source("https://source.example/partners", "site_read")
+    store.claim(listed.id, "appears_on_partner_lists", [{"domain": "source.example"}], src, confidence="high",
+                method="import:v1")
+    _prospect(store, "Moth Loans", "mothloans.example", score=52)   # 52 without a partner list: not yet
+    hunter = FakeHunter()
+    find_contacts(store, client=hunter)
+    assert hunter.calls == [("search", "larkloans.example")]
+    # a researched partner-list lender with no website goes to the researchers once
+    nosite = store.new_org("Newt Credit")
+    store.s.flush()
+    store.claim(nosite.id, "appears_on_partner_lists", [{"domain": "source.example"}], src, confidence="high",
+                method="import:v1")
+    store.role(nosite.id, "lender_state_licensed", None)
+    assert ask_missing_websites(store) == 1 and ask_missing_websites(store) == 0

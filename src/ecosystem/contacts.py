@@ -25,6 +25,7 @@ from .jobs import job
 from .store import Store
 
 MIN_SCORE = 60
+MIN_SCORE_PARTNER_LIST = 50  # a lender named on a lead source's partner list qualifies from 50
 PER_ORG = 3
 RECHECK_DAYS = 90
 METHOD = "hunter:v1"
@@ -60,7 +61,10 @@ LEFT JOIN latest_score b ON b.entity_id = o.id AND b.score_type = 'buyer_value'
 LEFT JOIN latest_score sv ON sv.entity_id = o.id AND sv.score_type = 'supply_value'
 LEFT JOIN compliance_status cs ON cs.entity_id = o.id
 WHERE o.lifecycle NOT IN ('merged', 'screened_out')
-  AND GREATEST(coalesce(b.value, 0), coalesce(sv.value, 0)) >= :min_score
+  AND (GREATEST(coalesce(b.value, 0), coalesce(sv.value, 0)) >= :min_score
+       OR (GREATEST(coalesce(b.value, 0), coalesce(sv.value, 0)) >= :min_partner
+           AND EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = o.id
+                       AND ec.attribute = 'appears_on_partner_lists')))
   AND (cs.value IS NULL OR cs.value <> 'blocked')
   AND NOT EXISTS (SELECT 1 FROM our_relationship r WHERE r.organisation_id = o.id)
   AND EXISTS (SELECT 1 FROM domain d WHERE d.organisation_id = o.id)
@@ -223,7 +227,8 @@ def find_contacts(store: Store, limit: int = 10, org_ids: list[int] | None = Non
     out = {"looked_up": 0, "people": 0, "sent_to_research": 0, "emails_found": 0, "skipped": []}
     with job(s, "contacts", {"limit": limit, "org_ids": org_ids}, store.actor) as ctx:
         client = client or HunterClient(s, job_run_id=ctx.run.id)
-        params = {"min_score": 0 if org_ids else min_score, "limit": 5000 if org_ids else limit,
+        params = {"min_score": 0 if org_ids else min_score, "min_partner": 0 if org_ids else MIN_SCORE_PARTNER_LIST,
+                  "limit": 5000 if org_ids else limit,
                   "since": datetime.now(timezone.utc) - timedelta(days=0 if org_ids else RECHECK_DAYS)}
         rows = s.execute(text(CANDIDATES_SQL), params).mappings().all()
         if org_ids:

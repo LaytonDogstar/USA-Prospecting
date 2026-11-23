@@ -28,7 +28,7 @@ def test_rescore_components_and_history(store, targets_file, traffic_file):
     assert comps["type_fit"]["score"] == 90 and comps["type_fit"]["claim_ids"]
     assert comps["price_volume_fit"]["score"] == 100  # max loan $3,000
     assert comps["segment"]["score"] == 100
-    assert comps["lead_buying"]["score"] == 30
+    assert comps["lead_buying"]["score"] == 75 and "index 30 is lower" in comps["lead_buying"]["raw"]  # partner lists beat the old index
     assert sc.components["weights_label"] == "v1 (default)"
     # supply value for a traffic row with priority, traffic and owner group
     rocket = s.scalar(select(m.Organisation).where(m.Organisation.display_name == "Rocket Bucks"))
@@ -64,6 +64,14 @@ def test_fit_and_traffic_rules():
     # marketplaces on lead-buying lists are supply, not lenders
     assert is_lender(set(), True) and not is_lender({"comparison_offer_wall"}, True)
     assert is_lender({"lender_tribal", "comparison_offer_wall"}, False)
+    # a low old index doesn't hold down a lender now seen on many partner lists; a higher index still wins
+    f = F(3000)
+    f.lbs = {1: (13.6, {"row": 9})}
+    f.current = {1: {"appears_on_partner_lists": ([{"d": i} for i in range(6)], 5)}}
+    lb = buyer_components(NS(id=1), f, DEFAULT_TABLES)["lead_buying"]
+    assert lb["score"] == 85 and "index 13.6 is lower" in lb["raw"]
+    f.lbs = {1: (90.0, {"row": 9})}
+    assert buyer_components(NS(id=1), f, DEFAULT_TABLES)["lead_buying"]["score"] == 90
 
 
 def test_shared_name_or_website_raises_dedup(store):

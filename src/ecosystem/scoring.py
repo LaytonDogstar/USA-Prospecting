@@ -180,15 +180,19 @@ def _component(score, raw, method, claim_ids=()):
 def buyer_components(org: m.Organisation, f: _Facts, tables: dict) -> dict:
     roles = [r for r in f.roles[org.id] if r.role in LENDER_ROLES]
     c = {}
+    # the higher of the spreadsheet's index and the cited evidence: the index was built from fewer lists than we
+    # now hold, so a lender seen on many partner lists must not be held down by an old low index value
+    lb = research_lead_buying(f.current[org.id])
     if org.id in f.lbs:
         v, comps = f.lbs[org.id]
-        c["lead_buying"] = _component(round(v, 1), f"{v:g} (Lead-buying strength sheet, row {comps.get('row')})",
-                                      "Lead-buying strength index (0-100): partner lists 30, organic 20, paid 15, "
-                                      "disclosed 15, affiliate programme 10, conferences 5, hiring 5", [])
-    else:
-        lb = research_lead_buying(f.current[org.id])
-        if lb:
-            c["lead_buying"] = _component(lb[0], lb[1], LEAD_BUYING_RESEARCH_METHOD, lb[2])
+        if lb and lb[0] > v:
+            c["lead_buying"] = _component(lb[0], f"{lb[1]} (index {v:g} is lower)", LEAD_BUYING_RESEARCH_METHOD, lb[2])
+        else:
+            c["lead_buying"] = _component(round(v, 1), f"{v:g} (Lead-buying strength sheet, row {comps.get('row')})",
+                                          "Lead-buying strength index (0-100): partner lists 30, organic 20, paid 15, "
+                                          "disclosed 15, affiliate programme 10, conferences 5, hiring 5", [])
+    elif lb:
+        c["lead_buying"] = _component(lb[0], lb[1], LEAD_BUYING_RESEARCH_METHOD, lb[2])
     sizes = []
     for metric, label in (("cfpb_complaints_12m", "CFPB complaints 12m"), ("ahrefs_organic_visits", "organic visits/mo"),
                           ("ahrefs_paid_spend_usd", "paid search $/mo")):

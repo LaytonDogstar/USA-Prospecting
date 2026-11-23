@@ -48,7 +48,7 @@ src/ecosystem/
   sources/ahrefs.py  Ahrefs API v3 client (metrics, SERP overview, plan usage); units estimated before the call
                  and corrected to the plan's actual usage after each job
   sources/hunter.py  Hunter.io v2 client (account free; domain search / email finder 1 credit, verifier 0.5), budget "hunter"
-  contacts.py    weekly contacts job: Hunter domain search for 60+ prospects that pass the partner hold-back, are not
+  contacts.py    weekly contacts job: Hunter domain search for 60+ prospects (50+ if on a partner list) that pass the partner hold-back, are not
                  blocked / screened out / do-not-contact and have a website; best 3 by title, no generic inboxes, invalid
                  never saved; nobody suitable → research request in "people" mode (names + titles, never LinkedIn);
                  approved names become people without email and the next run uses Hunter's email finder. Rechecks after 90 days
@@ -109,7 +109,7 @@ Existing-partner safeguard: an organisation with an open `possible_match` review
 
 Display names: `normalise.friendly_name` shows the trading brand when the record carries a legal name (and tidies ALL-CAPS names); the legal name stays visible underneath.
 
-Scoring rules: lead-buying uses the Lead-buying strength index when there is one, otherwise cited research evidence
+Scoring rules: lead-buying uses the higher of the Lead-buying strength index and cited research evidence
 (`scoring.research_lead_buying`: partner lists, lead-buying evidence, affiliate programme; at most 85); segment falls back
 to the researched segment text. Research targets likely buyers first (`research.pilot_targets`: partner list or tribal, then ranking for tracked
 keywords, then paid search / lead-buying index, then CFPB small-dollar complaints; unlikely names (bank, mortgage, auto,
