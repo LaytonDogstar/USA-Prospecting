@@ -22,7 +22,7 @@ UPLOAD_RULES = [  # (filename pattern, folder)
     (re.compile(r"^targets_.+\.xlsx$"), RAW_DIR),
     (re.compile(r"^CLE_.*traffic_options.*\.xlsx$"), RAW_DIR),
     (re.compile(r"^owner_groups\.csv$"), REFERENCE_DIR),
-    (re.compile(r"^our_relationships_seed\.csv$"), REFERENCE_DIR),
+    (re.compile(r"^our_relationships_seed(_au)?\.csv$"), REFERENCE_DIR),
 ]
 COMPONENT_HELP = {
     "lead_buying": "Lead-buying strength index (partner lists, traffic, disclosures, affiliate programme, hiring)",
@@ -199,6 +199,10 @@ async def imports_upload(request: Request, upload: UploadFile = File(...), db: S
               "traffic_options": raw / f"CLE_traffic_options_{stamp}.xlsx",
               "owner_groups": ref / "owner_groups.csv",
               "relationship_seed": ref / "our_relationships_seed.csv"}[kind]
+    if kind == "relationship_seed":
+        from ...importers import seed_market
+        if seed_market(tmp_path) == "AU":  # Australia's partners: kept beside the US file, never over it
+            target = ref / "our_relationships_seed_au.csv"
     if kind in ("targets", "traffic_options"):
         same = [p for p in raw.glob("*.xlsx") if p != tmp_path and sha256_of(p) == sha256_of(tmp_path)]
         if same:

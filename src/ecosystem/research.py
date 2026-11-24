@@ -431,6 +431,7 @@ def pilot_targets(s, n: int, explain: bool = False) -> list:
                            ('cfpb_complaints_payday_12m', 'cfpb_complaints_installment_12m', 'cfpb_complaints_loc_12m')) sd ON true
         LEFT JOIN compliance_status cs ON cs.entity_id = o.id
         WHERE o.lifecycle IN ('active','candidate') AND cs.value IS DISTINCT FROM 'blocked'
+          AND o.market = 'US'  -- Australian research has its own prompts and targets (next phase)
           AND NOT EXISTS (SELECT 1 FROM our_relationship r WHERE r.organisation_id = o.id)
           AND NOT EXISTS (SELECT 1 FROM org_role r WHERE r.organisation_id = o.id AND r.role = ANY(:supply))
           AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.kind = 'new_entrant' AND ri.status = 'open'

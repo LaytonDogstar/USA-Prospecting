@@ -135,6 +135,9 @@ def decide(store: Store, it: m.ReviewItem, action: str, note: str = "") -> str:
         keep = int(action.split(":")[1])
         if keep not in ids:
             raise DecisionError("Merge target must be one of the item's organisations")
+        if len({store.org(i).market for i in ids}) > 1:
+            raise DecisionError("These records are in different markets: one record per market. Use "
+                                "'Related: keep held back' or a link instead of a merge")
         for other in ids:
             if other != keep:
                 store.merge(keep, other, note=f"review #{it.id}: {note}")

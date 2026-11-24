@@ -71,7 +71,8 @@ def org_table(db, kind: str, f: dict, limit: int | None = 100, offset: int = 0) 
     """kind = 'lenders' or 'supply'. f = filter dict from the query string."""
     roles = LENDER_ROLES if kind == "lenders" else SUPPLY_ROLES
     params = {"score_type": "buyer_value" if kind == "lenders" else "supply_value", "roles": list(roles)}
-    where = ["o.lifecycle <> 'merged'"]
+    where = ["o.lifecycle <> 'merged'", "o.market = :market"]
+    params["market"] = f.get("market") or "US"
     if kind == "lenders":
         where.append(LENDER_SQL)
     else:
@@ -139,16 +140,22 @@ def org_table(db, kind: str, f: dict, limit: int | None = 100, offset: int = 0) 
     return rows, total
 
 
-def top_unworked(db, kind: str, n: int = 10) -> tuple[list[dict], int]:
+def top_unworked(db, kind: str, n: int = 10, market: str = "US") -> tuple[list[dict], int]:
     """Best organisations with no relationship. Anything that may already be a partner (an open possible match
     with one of our relationships) is held back, so nobody cold-calls an existing partner as a prospect."""
-    rows, _ = org_table(db, kind, {"our": "none", "sort": "score"}, limit=n + 60)
+    rows, _ = org_table(db, kind, {"our": "none", "sort": "score", "market": market}, limit=n + 60)
     held = [r for r in rows if r["pending_match"]]
     return [r for r in rows if not r["pending_match"]][:n], len(held)
 
 
-def review_counts(db) -> dict:
-    return dict(db.execute(text("SELECT kind, count(*) FROM review_item WHERE status = 'open' GROUP BY kind")).all())
+# a review card belongs to a market when any organisation on it does (a cross-market lookalike shows in both)
+REVIEW_IN_MARKET = ("EXISTS (SELECT 1 FROM organisation mo WHERE mo.id = ANY(review_item.entity_ids) "
+                    "AND mo.market = :market)")
+
+
+def review_counts(db, market: str = "US") -> dict:
+    return dict(db.execute(text(f"SELECT kind, count(*) FROM review_item WHERE status = 'open' AND {REVIEW_IN_MARKET} "
+                                "GROUP BY kind"), {"market": market}).all())
 
 
 def recent_activity(db, n: int = 12) -> list[dict]:
@@ -169,20 +176,23 @@ def recent_activity(db, n: int = 12) -> list[dict]:
     return out
 
 
-def headline_counts(db) -> dict:
-    return dict(db.execute(text("""
+def headline_counts(db, market: str = "US") -> dict:
+    return dict(db.execute(text(f"""
         SELECT
-          (SELECT count(*) FROM organisation WHERE lifecycle IN ('active','candidate')) AS orgs,
-          (SELECT count(*) FROM our_relationship WHERE status IN ('live','contracting','in_talks')) AS working,
-          (SELECT count(*) FROM our_relationship WHERE needs_confirmation) AS unconfirmed,
-          (SELECT count(*) FROM review_item WHERE status = 'open') AS reviews,
-          (SELECT count(*) FROM compliance_status WHERE value = 'blocked') AS blocked,
+          (SELECT count(*) FROM organisation WHERE lifecycle IN ('active','candidate') AND market = :market) AS orgs,
+          (SELECT count(*) FROM our_relationship r JOIN organisation o ON o.id = r.organisation_id
+            WHERE r.status IN ('live','contracting','in_talks') AND o.market = :market) AS working,
+          (SELECT count(*) FROM our_relationship r JOIN organisation o ON o.id = r.organisation_id
+            WHERE r.needs_confirmation AND o.market = :market) AS unconfirmed,
+          (SELECT count(*) FROM review_item WHERE status = 'open' AND {REVIEW_IN_MARKET}) AS reviews,
+          (SELECT count(*) FROM compliance_status cs JOIN organisation o ON o.id = cs.entity_id
+            WHERE cs.value = 'blocked' AND o.market = :market) AS blocked,
           (SELECT max(imported_at) FROM import_file) AS last_import
-    """)).one()._mapping)
+    """), {"market": market}).one()._mapping)
 
 
 def people_table(db, f: dict, limit: int | None = 200) -> list[dict]:
-    params, where = {}, ["true"]
+    params, where = {"market": f.get("market") or "US"}, ["o.market = :market"]
     if f.get("q"):
         params["q"] = f"%{f['q']}%"
         where.append("(p.name ILIKE :q OR p.title ILIKE :q OR o.display_name ILIKE :q)")
@@ -208,7 +218,7 @@ def tribes(db) -> list[tuple[int, str]]:
                            " ORDER BY display_name")).all()
 
 
-def owner_groups(db) -> list[dict]:
+def owner_groups(db, market: str = "US") -> list[dict]:
     """Owners with two or more organisations under them: one contact, several brands."""
     rows = [dict(r._mapping) for r in db.execute(text("""
         SELECT g.id, g.display_name, g.kind,
@@ -227,17 +237,17 @@ def owner_groups(db) -> list[dict]:
         LEFT JOIN our_relationship ours ON ours.organisation_id = c.id
         LEFT JOIN latest_score bv ON bv.entity_id = c.id AND bv.score_type = 'buyer_value'
         LEFT JOIN latest_score sv ON sv.entity_id = c.id AND sv.score_type = 'supply_value'
-        WHERE g.lifecycle <> 'merged'
+        WHERE g.lifecycle <> 'merged' AND g.market = :market
         GROUP BY g.id
         HAVING count(c.id) >= 2
-        ORDER BY count(c.id) DESC, max(greatest(coalesce(bv.value, 0), coalesce(sv.value, 0))) DESC"""))]
+        ORDER BY count(c.id) DESC, max(greatest(coalesce(bv.value, 0), coalesce(sv.value, 0))) DESC"""), {"market": market})]
     for r in rows:
         r["name"] = friendly_name(r["display_name"], r["brand"])
         r["role_list"] = sorted({ROLE_LABELS.get(x, x) for x in (r["roles"] or "").split(",") if x})
     return rows
 
 
-def shared_feeders(db, min_buyers: int = 2) -> list[dict]:
+def shared_feeders(db, min_buyers: int = 2, market: str = "US") -> list[dict]:
     """Sources that, by the evidence we hold, sell leads to two or more of the buyers we already sell to."""
     rows = [dict(r._mapping) for r in db.execute(text("""
         SELECT s.id, s.display_name,
@@ -256,10 +266,10 @@ def shared_feeders(db, min_buyers: int = 2) -> list[dict]:
         JOIN organisation t ON t.id = e.to_id
         JOIN our_relationship tr ON tr.organisation_id = t.id AND tr.status IN ('live','contracting')
              AND tr.role IN ('buyer','both','network')
-        WHERE e.type = 'sells_leads_to'
+        WHERE e.type = 'sells_leads_to' AND s.market = :market
         GROUP BY s.id
         HAVING count(DISTINCT t.id) >= :n
-        ORDER BY count(DISTINCT t.id) DESC, s.display_name"""), {"n": min_buyers})]
+        ORDER BY count(DISTINCT t.id) DESC, s.display_name"""), {"n": min_buyers, "market": market})]
     for r in rows:
         r["name"] = friendly_name(r["display_name"], r["brand"])
         r["role_list"] = sorted({ROLE_LABELS.get(x, x) for x in (r["roles"] or "").split(",") if x})

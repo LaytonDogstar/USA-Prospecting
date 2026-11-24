@@ -415,7 +415,7 @@ def import_traffic(store: Store, path: Path) -> dict:
 
 # ====================================================================== reference CSVs (kept out of git)
 def import_owner_groups(store: Store, path: Path) -> dict:
-    """CSV: group, member, relation, status, note.
+    """CSV: group, member, relation, status, note[, market (US / AU, default US)].
 
     relation: owns | operates | same_owner_as | hosts_affiliate_program_for | places_sponsored_content_on
     """
@@ -423,9 +423,14 @@ def import_owner_groups(store: Store, path: Path) -> dict:
     if f is None:
         return {"skipped": "already imported"}
     counts = {"rows": 0, "members_created": 0}
-    with open(path, newline="") as fh:
+    home_market = store.market
+    with open(path, newline="", encoding="utf-8-sig") as fh:
         for i, r in enumerate(csv.DictReader(fh), start=2):
             counts["rows"] += 1
+            market = (r.get("market") or "US").strip().upper()
+            if market not in m.MARKETS:
+                raise ValueError(f"row {i}: market must be one of {', '.join(m.MARKETS)}")
+            store.market = market
             src = store.row_source(f, path.name, i)
             rel, status = r["relation"].strip(), (r.get("status") or "inferred").strip()
             group, _ = store.resolve(r["group"].strip(), kind=(r.get("group_kind") or "operator_group").strip() or "operator_group")
@@ -438,12 +443,21 @@ def import_owner_groups(store: Store, path: Path) -> dict:
             store.edge(group.id, member.id, rel, status, c)
             if rel in ("owns", "operates") and member.parent_id is None and status != "rumoured":
                 member.parent_id = group.id
+    store.market = home_market
     f.row_counts = counts
     return counts
 
 
+def seed_market(path: Path) -> str:
+    """The market a relationship seed file is for: its 'market' column (US / AU), US when there is none."""
+    with open(path, newline="", encoding="utf-8-sig") as fh:
+        markets = {(r.get("market") or "US").strip().upper() for r in csv.DictReader(fh)}
+    return "AU" if markets == {"AU"} else "US"
+
+
 def import_relationship_seed(store: Store, path: Path) -> dict:
-    """CSV: name, aliases, domains, role, status, notes  (aliases/domains separated by '|').
+    """CSV: name, aliases, domains, role, status, notes[, market]  (aliases/domains separated by '|'; market US / AU,
+    default US). Matching to an existing relationship stays inside the row's market.
 
     Seeds attach to an organisation only when it already has an our_relationship under the same name.
     Otherwise a new organisation is created, and the possible-match sweep raises lookalikes for review.
@@ -452,15 +466,22 @@ def import_relationship_seed(store: Store, path: Path) -> dict:
     if f is None:
         return {"skipped": "already imported"}
     counts = {"rows": 0, "attached_existing": 0, "created": 0}
-    with open(path, newline="") as fh:
+    home_market = store.market
+    with open(path, newline="", encoding="utf-8-sig") as fh:
         for i, r in enumerate(csv.DictReader(fh), start=2):
             counts["rows"] += 1
+            market = (r.get("market") or "US").strip().upper()
+            if market not in m.MARKETS:
+                raise ValueError(f"row {i}: market must be one of {', '.join(m.MARKETS)}")
+            store.market = market
             src = store.row_source(f, path.name, i)
             names = [r["name"].strip()] + [a.strip() for a in (r.get("aliases") or "").split("|") if a.strip()]
             domains = [d for d in (norm_domain(x) for x in (r.get("domains") or "").split("|")) if d]
             keys = {compact(n) for n in names}
             existing = None
             for ours in store.s.scalars(select(m.OurRelationship)):
+                if store.org(ours.organisation_id).market != market:
+                    continue
                 if keys & {compact(a) for a in store.org_names(ours.organisation_id)}:
                     existing = store.org(ours.organisation_id)
                     break
@@ -478,6 +499,7 @@ def import_relationship_seed(store: Store, path: Path) -> dict:
                     store.add_domain(org.id, d, claim_id=c.id)
             store.set_our_relationship(org.id, role=r["role"].strip(), status=r["status"].strip(), source="seed",
                                        needs_confirmation=True, notes=(r.get("notes") or "").strip() or None)
+    store.market = home_market
     f.row_counts = counts
     return counts
 

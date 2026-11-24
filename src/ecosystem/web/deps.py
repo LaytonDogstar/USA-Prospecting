@@ -82,8 +82,16 @@ def store_for(db: Session, user: m.AppUser) -> Store:
     return Store(db, actor=user.username)
 
 
+def current_market(request: Request) -> str:
+    """The market the user is looking at (header switch), kept in the session. US until they switch."""
+    mk = request.session.get("market", "US")
+    return mk if mk in m.MARKETS else "US"
+
+
 def render(request: Request, template: str, user: m.AppUser | None, **ctx):
     ctx.setdefault("flash", request.session.pop("flash", None))
+    ctx.setdefault("market", current_market(request))
+    ctx.setdefault("markets", m.MARKETS)
     return templates.TemplateResponse(request, template, {"user": user, "csrf": csrf_token(request), **ctx})
 
 
@@ -94,7 +102,7 @@ def flash(request: Request, message: str) -> None:
 def qs(params: dict, **changes) -> str:
     """Query string with some parameters changed; empty values dropped."""
     merged = {**params, **changes}
-    return "?" + urlencode({k: v for k, v in merged.items() if v not in (None, "", False)})
+    return "?" + urlencode({k: v for k, v in merged.items() if v not in (None, "", False) and k != "market"})
 
 
 def fmt_num(v) -> str:

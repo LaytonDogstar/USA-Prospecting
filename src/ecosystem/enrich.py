@@ -47,6 +47,7 @@ def traffic_targets(s, limit: int, max_age_days: int = 30) -> list[tuple[int, st
         LEFT JOIN latest_score sv ON sv.entity_id = o.id AND sv.score_type = 'supply_value'
         LEFT JOIN compliance_status cs ON cs.entity_id = o.id
         WHERE o.lifecycle IN ('active','candidate') AND cs.value IS DISTINCT FROM 'blocked'
+          AND o.market = 'US'  -- US traffic figures; Australian sites get country=au in the AU phase
           AND NOT EXISTS (SELECT 1 FROM metric_snapshot ms JOIN source src ON src.id = ms.source_id
                           WHERE ms.entity_id = o.id AND ms.metric = 'ahrefs_organic_visits'
                             AND src.source_type = 'ahrefs' AND ms.retrieved_at > now() - make_interval(days => :age))

@@ -48,7 +48,7 @@ def layer_for(roles: set[str], kind: str, sells_leads: bool) -> int:
 def _load(db):
     orgs = {}
     for r in db.execute(text("""
-        SELECT o.id, o.display_name, o.kind, o.parent_id, o.tier, o.lifecycle,
+        SELECT o.id, o.display_name, o.kind, o.parent_id, o.tier, o.lifecycle, o.market,
                coalesce((SELECT array_agg(DISTINCT role) FROM org_role WHERE organisation_id = o.id), '{}') AS roles,
                coalesce((SELECT array_agg(DISTINCT tribe_id) FROM org_role WHERE organisation_id = o.id
                          AND tribe_id IS NOT NULL), '{}') AS tribes,
@@ -100,6 +100,8 @@ def build_graph(db, f: dict | None = None, expand: set[int] | None = None) -> di
 
     # ---- filters
     def keep(o) -> bool:
+        if o["market"] != (f.get("market") or "US"):
+            return False
         if o["lifecycle"] == "screened_out" and not f.get("screened"):
             return False
         comp = f.get("compliance") or "hide_blocked"

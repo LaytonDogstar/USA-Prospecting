@@ -103,6 +103,11 @@ def possible_match_sweep(store: Store, only: set[int] | None = None) -> dict:
             if o == rid or other.lifecycle == "merged" or o == rel_org.parent_id or o in rk["tribes"]:
                 continue  # itself, or the group/tribe it already sits under
             strength = "strong" if any(r.startswith(("same domain", "same name")) for r in reasons) else "weak"
+            if other.market != rel_org.market:
+                if strength != "strong":
+                    continue  # across markets only an exact name or website counts (lookalike names are common)
+                reasons = reasons + [f"our relationship is in the other market ({rel_org.market}): if it is the same "
+                                     "group, choose 'Related: keep held back', never a merge"]
             item = store.review(
                 "possible_match", f"possible_match:{min(o, rid)}:{max(o, rid)}",
                 f"{other.display_name} may be existing {ours_row.role} {rel_org.display_name}",
@@ -117,13 +122,13 @@ def possible_match_sweep(store: Store, only: set[int] | None = None) -> dict:
 
 def name_dedup_suggestions(store: Store, threshold: float = 0.9) -> int:
     """Pairs of organisations whose names are near-identical but were not linked on import."""
-    rows = list(store.s.execute(select(m.Organisation.id, m.Organisation.display_name, m.Organisation.kind)
-                                .where(m.Organisation.lifecycle != "merged")))
+    rows = list(store.s.execute(select(m.Organisation.id, m.Organisation.display_name, m.Organisation.kind,
+                                       m.Organisation.market).where(m.Organisation.lifecycle != "merged")))
     blocks = defaultdict(list)
-    for oid, name, kind in rows:
+    for oid, name, kind, market in rows:  # one record per market: never suggest merging across markets
         c = compact(name)
         if len(c) >= 5:
-            blocks[c[:4]].append((oid, name, kind))
+            blocks[(market, c[:4])].append((oid, name, kind))
     n = 0
     for items in blocks.values():
         for i, (a, an, ak) in enumerate(items):
@@ -142,8 +147,10 @@ def shared_key_suggestions(store: Store) -> int:
     """Organisations that share a non-generic name, brand or website but were kept apart on import
     (e.g. a CFPB record 'X Financial dba Brand' and a researched record that lists Brand and brand.com)."""
     s = store.s
-    live = {r[0]: r[1] for r in s.execute(select(m.Organisation.id, m.Organisation.kind)
-                                          .where(m.Organisation.lifecycle != "merged"))}
+    live, market_of = {}, {}
+    for oid, kind, market in s.execute(select(m.Organisation.id, m.Organisation.kind, m.Organisation.market)
+                                       .where(m.Organisation.lifecycle != "merged")):
+        live[oid], market_of[oid] = kind, market
     by_key: dict[str, set[int]] = defaultdict(set)
     for eid, alias, comp in s.execute(select(m.NameAlias.entity_id, m.NameAlias.alias, m.NameAlias.alias_compact)):
         if eid in live and live[eid] == "company" and len(comp) >= 6 and not is_generic(alias):
@@ -161,6 +168,8 @@ def shared_key_suggestions(store: Store) -> int:
         ids = sorted(ids)
         for i, a in enumerate(ids):
             for b in ids[i + 1:]:
+                if market_of.get(a) != market_of.get(b):
+                    continue  # the same group's records in two markets are kept apart on purpose
                 if s.scalar(select(m.Organisation.parent_id).where(m.Organisation.id == a)) == b or \
                         s.scalar(select(m.Organisation.parent_id).where(m.Organisation.id == b)) == a:
                     continue  # already linked as owner and brand

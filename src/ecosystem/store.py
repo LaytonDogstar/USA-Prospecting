@@ -13,9 +13,10 @@ from .normalise import compact, name_similarity, norm_domain, norm_name, domain_
 
 
 class Store:
-    def __init__(self, session: Session, actor: str = "system"):
+    def __init__(self, session: Session, actor: str = "system", market: str = "US"):
         self.s = session
         self.actor = actor
+        self.market = market  # new organisations belong to this market; name matching stays inside it
         self._url_sources: dict[str, m.Source] = {}
 
     # ------------------------------------------------------------ entities
@@ -29,7 +30,7 @@ class Store:
                 lifecycle: str = "active", notes: str | None = None) -> m.Organisation:
         assert kind in m.ORG_KINDS, kind
         org = m.Organisation(id=self._entity("organisation"), display_name=display_name, legal_name=legal_name,
-                             kind=kind, lifecycle=lifecycle, notes=notes)
+                             kind=kind, lifecycle=lifecycle, notes=notes, market=self.market)
         self.s.add(org)
         self.s.flush()
         self.add_alias(org.id, display_name)
@@ -111,6 +112,8 @@ class Store:
         reasons = []
         # 1. domain
         owners = {o for o in (self.domain_owner(d) for d in domains) if o}
+        # a record in the other market is a different organisation (one record per market), never a duplicate
+        owners = {o for o in owners if self.org(o).market == self.market}
         if len(owners) == 1:
             owner = next(iter(owners))
             best = max([name_similarity(n, a) for n in names for a in self.org_names(owner)]
@@ -125,7 +128,8 @@ class Store:
             cands = set()
             for n in names:
                 q = select(m.NameAlias.entity_id).join(m.Organisation, m.Organisation.id == m.NameAlias.entity_id).where(
-                    m.NameAlias.alias_compact == compact(n), m.Organisation.lifecycle != "merged")
+                    m.NameAlias.alias_compact == compact(n), m.Organisation.lifecycle != "merged",
+                    m.Organisation.market == self.market)
                 if kinds:
                     q = q.where(m.Organisation.kind.in_(kinds))
                 cands |= set(self.s.scalars(q))

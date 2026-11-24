@@ -35,3 +35,16 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
 def logout(request: Request, user=Depends(current_user), _=Depends(check_csrf)):
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
+
+
+@router.post("/market")
+def switch_market(request: Request, market: str = Form(...), back: str = Form("/"), user=Depends(current_user),
+                  _=Depends(check_csrf)):
+    """The header switch: which market's organisations every page shows. A viewing choice, not a data edit."""
+    if market in m.MARKETS:
+        request.session["market"] = market
+    # back to the same page, but only to a path inside the app; organisation pages belong to one market, so go Home
+    path = back.split("?")[0] if back.startswith("/") and not back.startswith("//") else "/"
+    if path.startswith(("/org/", "/person/", "/source/")):
+        path = "/"
+    return RedirectResponse(path, status_code=303)

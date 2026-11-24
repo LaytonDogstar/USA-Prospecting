@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ... import models as m
 from ...decisions import DecisionError, apply_safe, decide as decide_item, suggest, summaries, undo_screen
-from ..deps import admin_view, admin_user, current_user, flash, get_db, render, store_for
+from ..deps import current_market, admin_view, admin_user, current_user, flash, get_db, render, store_for
 from .home import REVIEW_LABELS
 
 router = APIRouter()
@@ -22,10 +22,12 @@ def _summaries(db: Session, ids: set[int]) -> dict:
 @router.get("/review")
 def inbox(request: Request, kind: str = "", status: str = "open", page: int = 1, db: Session = Depends(get_db),
           user=Depends(admin_view)):
-    counts = dict(db.execute(select(m.ReviewItem.kind, func.count()).where(m.ReviewItem.status == "open")
+    from ..views import REVIEW_IN_MARKET
+    in_market = text(REVIEW_IN_MARKET).bindparams(market=current_market(request))
+    counts = dict(db.execute(select(m.ReviewItem.kind, func.count()).where(m.ReviewItem.status == "open", in_market)
                              .group_by(m.ReviewItem.kind)).all())
     kind = kind if kind in REVIEW_LABELS else next((k for k in REVIEW_LABELS if counts.get(k)), "possible_match")
-    q = select(m.ReviewItem).where(m.ReviewItem.kind == kind)
+    q = select(m.ReviewItem).where(m.ReviewItem.kind == kind, in_market)
     q = q.where(m.ReviewItem.status == "open") if status == "open" else q.where(m.ReviewItem.status != "open")
     total = db.scalar(select(func.count()).select_from(q.subquery()))
     # strongest evidence first: shared domain/name, then the spreadsheet's hand matches, then weak lookalikes
@@ -47,7 +49,8 @@ def inbox(request: Request, kind: str = "", status: str = "open", page: int = 1,
     suggestions = {it.id: suggest(st, it, summaries) for it in items} if status == "open" else {}
     safe_on_tab = 0
     if status == "open":  # one summaries query for the whole tab, not one per item
-        tab = list(db.scalars(select(m.ReviewItem).where(m.ReviewItem.kind == kind, m.ReviewItem.status == "open")))
+        tab = list(db.scalars(select(m.ReviewItem).where(m.ReviewItem.kind == kind, m.ReviewItem.status == "open",
+                                                         in_market)))
         tab_summ = _summaries(db, {i for it in tab for i in it.entity_ids})
         safe_on_tab = sum(1 for it in tab if (sug := suggest(st, it, tab_summ)) and sug["safe"])
     return render(request, "review.html", user, items=items, kind=kind, status=status, counts=counts, labels=REVIEW_LABELS,

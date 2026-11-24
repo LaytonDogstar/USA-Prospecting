@@ -43,8 +43,9 @@ def import_all(store: Store, raw: Path | None = None, ref: Path | None = None) -
         out[path.name] = import_traffic(store, path)
     if (ref / "owner_groups.csv").exists():
         out["owner_groups.csv"] = import_owner_groups(store, ref / "owner_groups.csv")
-    if (ref / "our_relationships_seed.csv").exists():
-        out["our_relationships_seed.csv"] = import_relationship_seed(store, ref / "our_relationships_seed.csv")
+    for name in ("our_relationships_seed.csv", "our_relationships_seed_au.csv"):
+        if (ref / name).exists():
+            out[name] = import_relationship_seed(store, ref / name)
     out["name_dedup_suggestions"] = name_dedup_suggestions(store)
     out["shared_key_suggestions"] = shared_key_suggestions(store)
     out["possible_match_sweep"] = possible_match_sweep(store)

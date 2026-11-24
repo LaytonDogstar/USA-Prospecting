@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ... import models as m
 from ...parsing import US_STATES
 from ...scoring import LENDER_ROLES, SUPPLY_ROLES
-from ..deps import current_user, get_db, render
+from ..deps import current_market, current_user, get_db, render
 from ..views import OUR_STATUSES, ROLE_LABELS, org_table, people_table, tribes
 
 router = APIRouter()
@@ -19,7 +19,7 @@ FILTER_KEYS = ("q", "role", "our", "compliance", "state", "tier", "min_score", "
 
 
 def _filters(request: Request) -> dict:
-    return {k: request.query_params.get(k, "") for k in FILTER_KEYS}
+    return {**{k: request.query_params.get(k, "") for k in FILTER_KEYS}, "market": current_market(request)}
 
 
 def _csv(rows: list[dict], columns: list[tuple[str, str]], name: str) -> StreamingResponse:
@@ -64,7 +64,7 @@ def supply(request: Request, db: Session = Depends(get_db), user=Depends(current
 @router.get("/people")
 def people(request: Request, db: Session = Depends(get_db), user=Depends(current_user)):
     f = {"q": request.query_params.get("q", ""), "role_category": request.query_params.get("role_category", ""),
-         "contactable": request.query_params.get("contactable", "")}
+         "contactable": request.query_params.get("contactable", ""), "market": current_market(request)}
     if request.query_params.get("format") == "csv":
         rows = people_table(db, f, limit=None)
         cols = [("name", "name"), ("title", "title"), ("org_name", "organisation"), ("role_category", "role category"),

@@ -28,6 +28,7 @@ TS = DateTime(timezone=True)
 # --- vocabularies (checked in code; kept as text so adding a value needs no migration) ---
 ORG_KINDS = ("operator_group", "tribe", "company", "bank", "agency", "platform")
 LIFECYCLES = ("candidate", "active", "screened_out", "merged")
+MARKETS = {"US": "United States", "AU": "Australia"}  # an organisation record belongs to one market
 ROLES = (
     "lender_tribal", "lender_state_licensed", "lender_bank_partner", "lender_cab_cso", "servicer",
     "lead_network_pingtree", "connector_brand", "comparison_offer_wall", "content_affiliate",
@@ -91,6 +92,8 @@ class Organisation(Base):
     lifecycle: Mapped[str] = mapped_column(String(20), default="active")
     merged_into_id: Mapped[int | None] = mapped_column(ForeignKey("organisation.id"))
     tier: Mapped[str | None] = mapped_column(String(1))  # A/B/C, drives refresh cadence
+    # a group trading in both markets has one record per market, linked by an edge or a shared parent
+    market: Mapped[str] = mapped_column(String(2), default="US", server_default="US", index=True)
 
 
 class Brand(Base):
@@ -299,7 +302,8 @@ class TrackedKeyword(Base):
     keyword: Mapped[str] = mapped_column(Text)
     state: Mapped[str | None] = mapped_column(String(2))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
-    __table_args__ = (UniqueConstraint("keyword", "state"),)
+    market: Mapped[str] = mapped_column(String(2), default="US", server_default="US")
+    __table_args__ = (UniqueConstraint("keyword", "state", "market"),)
 
 
 # ---------------------------------------------------------------- compliance

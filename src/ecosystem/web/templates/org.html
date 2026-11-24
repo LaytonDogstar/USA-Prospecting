@@ -7,7 +7,7 @@
 {# ---------- the five-second view ---------- #}
 <div class="page-head">
   <div>
-    <h1>{{ org.display_name }}</h1>
+    <h1>{{ org.display_name }}{% if org.market != "US" %} <span class="chip" title="{{ markets.get(org.market, org.market) }}">{{ org.market }}</span>{% endif %}</h1>
     <div>
       {% for r in roles %}<span class="chip info">{{ role_labels.get(r.role, r.role) }}</span>{% endfor %}
       {% if org.kind != 'company' %}<span class="chip">{{ org.kind | replace('_', ' ') }}</span>{% endif %}

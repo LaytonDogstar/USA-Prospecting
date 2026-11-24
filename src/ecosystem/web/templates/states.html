@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}State map{% endblock %}
 {% block content %}
+{% if s is none %}
+<div class="page-head"><div><h1>State map</h1>
+  <p class="muted">Australian credit licences are national (ASIC), so there are no state footprints to map. Switch to US in the header to see the US state map.</p></div></div>
+{% else %}
 <div class="page-head">
   <div><h1>State map</h1>
     <p class="muted">How many lenders on the map serve each state, and how many of them we already sell to. Click a state to list its lenders.</p></div>
@@ -48,4 +52,5 @@
     </tbody>
   </table>
 </section>
+{% endif %}
 {% endblock %}

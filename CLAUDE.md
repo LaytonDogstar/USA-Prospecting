@@ -9,7 +9,9 @@ Two tools live here:
 - **`src/ecosystem/`: the US lead-gen industry map ("Ecosystem").** This is the main build. Postgres + Python. Its plan and phases are in `docs/PLAN.md`.
 - **`src/prospecting/`: the older SQLite tool.** It builds buyer profiles from pingtree exports and the 2026-09 targets workbook. It is kept working until the Ecosystem app covers it; its buyer profiles will feed buyer-value scoring. Don't extend it.
 
-Status: Phases 1–3 are done and deployed on Railway. Phase 4 (enrichment) is built: Ahrefs traffic and SERP jobs, the Anthropic research pass, and contacts (Hunter, `contacts.py`), run from Admin → Research & budgets once `AHREFS_API_KEY` / `ANTHROPIC_API_KEY` / `HUNTER_API_KEY` are set in Railway.
+Status: Phases 1–3 are done and deployed on Railway. Australia is being added as a second market (phase 1 done:
+the market field and the header switch; next: ASIC credit licence register and AFCA complaint data, AU research, AU
+contacts). Phase 4 (enrichment) is built: Ahrefs traffic and SERP jobs, the Anthropic research pass, and contacts (Hunter, `contacts.py`), run from Admin → Research & budgets once `AHREFS_API_KEY` / `ANTHROPIC_API_KEY` / `HUNTER_API_KEY` are set in Railway.
 
 ## Rules that matter
 
@@ -97,10 +99,19 @@ scripts/portal.py  client for the live portal used by the scheduled Claude revie
                  ECOSYSTEM_USERNAME, ECOSYSTEM_PASSWORD): status, report, review, decide, ask, undo-screen, notify, run-now. Backed by the read-only
                  JSON routes in web/routes/api.py (/api/status, /api/report, /api/review, /api/csrf); decisions go
                  through the normal /review/{id}/decide form post. No commands for users, budgets, weights or imports
-migrations/      Alembic. 0001 = initial schema + entity_current view; 0002 = latest_score view; 0003 = provider_budget; 0004 = job_schedule; 0005 = notification; 0006 = research_request; 0007 = notification resolved_at; 0008 = person email_status / email_confidence / do_not_contact
+migrations/      Alembic. 0001 = initial schema + entity_current view; 0002 = latest_score view; 0003 = provider_budget; 0004 = job_schedule; 0005 = notification; 0006 = research_request; 0007 = notification resolved_at; 0008 = person email_status / email_confidence / do_not_contact; 0009 = organisation.market and tracked_keyword.market
 tests/ecosystem/ pytest; conftest builds made-up workbooks. test_acceptance_real_data.py runs only
                  when the real files and data/reference/acceptance.json are present.
 ```
+
+Markets: every organisation record belongs to one market (`organisation.market`, `models.MARKETS`: US, AU). A group
+trading in both has one record per market, linked by an edge or a shared parent, never merged (`decide` refuses a
+cross-market merge; dedup suggestions stay inside a market; `Store(market=...)` creates and name-matches inside its
+market). The possible-match sweep compares across markets only on an exact name or website, so a partner in one market
+holds back the same group in the other. The header switch (`POST /market`, session) filters Home, Lenders, Supply,
+People, Review, Map and Leverage; States is US only. Seed files take an optional `market` column; an all-AU seed is
+stored as `our_relationships_seed_au.csv`. Research, contacts and Ahrefs traffic jobs are US-only until their AU
+versions are built.
 
 Who is a lender (a buyer): a researched lender role (including `debt_relief`: debt relief / settlement / credit counselling, which buys declined-loan traffic on offer walls and is never screened out; `research.restore_debt_relief` in upkeep puts back any that were), or a lead-buying index with no supply role (`scoring.is_lender`, `footprint.LENDER_SQL`); marketplaces on lead-buying lists are supply. Price/volume fit peaks at $1,000-5,000 max loans and falls for prime-sized loans. Supply traffic is whole-site, so it counts only in part by category (`TRAFFIC_LOAN_SHARE`) until Phase 4 page-level sizing.
 

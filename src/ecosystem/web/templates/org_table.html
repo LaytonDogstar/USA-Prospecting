@@ -24,8 +24,8 @@
     {% for v, label in [('hide_blocked','Hide blocked'),('all','All'),('flagged','Has flags'),('unreviewed','Not reviewed'),('clear','Clear'),('review','Review'),('blocked','Blocked only')] %}
     <option value="{{ v }}" {{ 'selected' if (f.compliance or 'hide_blocked') == v }}>{{ label }}</option>{% endfor %}</select></label>
   {% if is_l %}
-  <label>State <select name="state"><option value="">Any</option>
-    {% for s in states %}<option {{ 'selected' if f.state == s }}>{{ s }}</option>{% endfor %}</select></label>
+  {% if market == 'US' %}<label>State <select name="state"><option value="">Any</option>
+    {% for s in states %}<option {{ 'selected' if f.state == s }}>{{ s }}</option>{% endfor %}</select></label>{% endif %}
   {% if tribes %}<label>Tribe <select name="tribe"><option value="">Any</option>
     {% for id, name in tribes %}<option value="{{ id }}" {{ 'selected' if f.tribe == id|string }}>{{ name }}</option>{% endfor %}</select></label>{% endif %}
   {% else %}

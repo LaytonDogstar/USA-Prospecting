@@ -7,7 +7,7 @@ from ...footprint import LENDER_TYPES, TYPE_LABELS, state_summary
 from ...mapgraph import LAYERS, build_graph
 from ...parsing import US_STATES
 from ...scoring import LENDER_ROLES, SUPPLY_ROLES
-from ..deps import current_user, get_db, render
+from ..deps import current_market, current_user, get_db, render
 from ..views import OUR_STATUSES, ROLE_LABELS, owner_groups, shared_feeders, tribes
 
 router = APIRouter()
@@ -15,7 +15,7 @@ MAP_FILTERS = ("view", "role", "tribe", "state", "our", "min_score", "compliance
 
 
 def _filters(request: Request) -> dict:
-    return {k: request.query_params.get(k, "") for k in MAP_FILTERS}
+    return {**{k: request.query_params.get(k, "") for k in MAP_FILTERS}, "market": current_market(request)}
 
 
 def _expand(request: Request) -> set[int]:
@@ -39,6 +39,8 @@ def map_data(request: Request, db: Session = Depends(get_db), user=Depends(curre
 
 @router.get("/states")
 def states_page(request: Request, db: Session = Depends(get_db), user=Depends(current_user)):
+    if current_market(request) != "US":  # Australian credit licences are national: no state footprints
+        return render(request, "states.html", user, s=None, rows=[], names={}, types=[], type_labels={})
     summary = state_summary(db)
     rows = sorted(summary["states"].items(), key=lambda kv: (-kv[1]["total"], kv[0]))
     return render(request, "states.html", user, s=summary, rows=rows, names=US_STATES,
@@ -47,4 +49,5 @@ def states_page(request: Request, db: Session = Depends(get_db), user=Depends(cu
 
 @router.get("/leverage")
 def leverage_page(request: Request, db: Session = Depends(get_db), user=Depends(current_user)):
-    return render(request, "leverage.html", user, groups=owner_groups(db), feeders=shared_feeders(db))
+    mk = current_market(request)
+    return render(request, "leverage.html", user, groups=owner_groups(db, mk), feeders=shared_feeders(db, market=mk))

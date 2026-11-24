@@ -64,6 +64,7 @@ LEFT JOIN latest_score b ON b.entity_id = o.id AND b.score_type = 'buyer_value'
 LEFT JOIN latest_score sv ON sv.entity_id = o.id AND sv.score_type = 'supply_value'
 LEFT JOIN compliance_status cs ON cs.entity_id = o.id
 WHERE o.lifecycle NOT IN ('merged', 'screened_out')
+  AND o.market = 'US'  -- Australian contacts wait for their own lawful-basis note (Spam Act / Privacy Act)
   AND (GREATEST(coalesce(b.value, 0), coalesce(sv.value, 0)) >= :min_score
        OR (GREATEST(coalesce(b.value, 0), coalesce(sv.value, 0)) >= :min_partner
            AND EXISTS (SELECT 1 FROM entity_current ec WHERE ec.entity_id = o.id
