@@ -115,8 +115,9 @@ def main(argv=None) -> int:
     rs2.add_argument("--n", type=int, default=20)
     rs2.add_argument("--model", default=None)
     bs = sub.add_parser("budget-set", help="set a provider's monthly budget")
-    bs.add_argument("provider", choices=["anthropic", "ahrefs", "similarweb"])
+    bs.add_argument("provider", choices=["anthropic", "ahrefs", "similarweb", "hunter"])
     bs.add_argument("limit", type=float)
+    bs.add_argument("--market", default="US", choices=["US", "AU"])
     rp = sub.add_parser("reconcile", help="print the count reconciliation")
     rp.add_argument("--json", action="store_true")
     rl = sub.add_parser("review-list")
@@ -186,8 +187,8 @@ def main(argv=None) -> int:
             print(json.dumps(research_batch(store, n=a.n, model=a.model or DEFAULT_MODEL), indent=2))
         elif a.cmd == "budget-set":
             from .budget import set_limit
-            set_limit(s, a.provider, a.limit, store.actor)
-            print(f"{a.provider} monthly budget set to {a.limit:g}")
+            set_limit(s, a.provider, a.limit, store.actor, market=a.market)
+            print(f"{a.provider} ({a.market}) monthly budget set to {a.limit:g}")
         elif a.cmd == "reset-data":
             if not a.yes:
                 print("This clears all imported data, review decisions and relationship edits. Re-run with --yes.",

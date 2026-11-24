@@ -64,3 +64,47 @@ def test_header_switch_filters_pages(web, session, tmp_path):
     assert "Prairie Holdings" not in web.get("/lenders").text  # unknown market ignored
     web.post("/market", data={"market": "US", "back": "/", "csrf": csrf(web)})
     assert "Prairie" in web.get("/lenders?q=Prairie").text
+
+
+def test_budgets_are_per_market(session):
+    from ecosystem import budget
+    budget.set_limit(session, "anthropic", 100, "test")
+    assert budget.limit(session, "anthropic", "AU") == (0.0, "usd")  # nothing spent in a new market until set
+    try:
+        budget.check(session, "anthropic", 0.1, market="AU")
+        assert False
+    except budget.BudgetExceeded as e:
+        assert "Australia" in str(e)
+    budget.set_limit(session, "anthropic", 40, "test", market="AU")
+    budget.record(session, "anthropic", 0, 30, None, market="AU")
+    budget.record(session, "anthropic", 0, 5, None)
+    assert budget.used(session, "anthropic", "AU") == 30 and budget.used(session, "anthropic") == 5
+    rows = {(r["provider"], r["market"]): r for r in budget.summary(session)}
+    assert rows[("anthropic", "AU")]["limit"] == 40 and rows[("anthropic", "US")]["limit"] == 100
+
+
+def test_user_limited_to_one_market(web, session, tmp_path):
+    from ecosystem.auth import create_user
+    import_relationship_seed(Store(session, "test"), _au_seed(tmp_path))
+    u = create_user(session, "aussie", "aussie-password-1", "admin")
+    u.markets = ["AU"]
+    session.commit()
+    us_org = session.scalar(select(m.Organisation.id).where(m.Organisation.market == "US"))
+    au_org = session.scalar(select(m.Organisation.id).where(m.Organisation.market == "AU"))
+    login(web, "aussie", "aussie-password-1")
+    home = web.get("/").text
+    assert 'action="/market"' not in home and ">AU<" in home  # no switch, the AU chip instead
+    assert "Prairie Holdings" not in web.get("/lenders?q=Prairie").text
+    web.post("/market", data={"market": "US", "back": "/", "csrf": csrf(web)})
+    assert "Prairie Holdings" not in web.get("/lenders?q=Prairie").text  # can't switch to a market they don't have
+    assert web.get(f"/org/{us_org}").status_code == 404 and web.get(f"/org/{au_org}").status_code == 200
+    r = web.post(f"/org/{us_org}/compliance", data={"value": "blocked", "note": "x", "csrf": csrf(web)})
+    assert r.status_code == 404
+    # an admin gives them the US too
+    web.post("/logout", data={"csrf": csrf(web)})
+    login(web)
+    web.post(f"/admin/users/{u.id}", data={"action": "markets", "markets": ["AU", "US"], "csrf": csrf(web, "/admin/users")})
+    session.expire_all()
+    assert sorted(session.get(m.AppUser, u.id).markets) == ["AU", "US"]
+    r = web.post(f"/admin/users/{u.id}", data={"action": "markets", "csrf": csrf(web, "/admin/users")}, follow_redirects=True)
+    assert "choose at least one market" in r.text

@@ -8,6 +8,7 @@ The app checks for due schedules every few minutes in a background thread. A Pos
 only one copy runs a schedule, even if Railway briefly runs two instances during a deploy.
 """
 import json
+from contextlib import contextmanager
 import logging
 import os
 import threading
@@ -83,15 +84,27 @@ class AlreadyRunning(RuntimeError):
     pass
 
 
+@contextmanager
+def advisory_lock(engine, key_sql: str, params: dict):
+    """Hold a Postgres session-level advisory lock on a dedicated connection for the duration of the block.
+    The lock must not share the job's Session: a Session can move to another pooled connection after a commit,
+    and an unlock sent on the wrong connection leaves the lock stuck on a pooled one. Yields False if it is taken."""
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        got = conn.scalar(text(f"SELECT pg_try_advisory_lock({key_sql})"), params)
+        try:
+            yield bool(got)
+        finally:
+            if got:
+                conn.execute(text(f"SELECT pg_advisory_unlock({key_sql})"), params)
+
+
 def run_job(s, job: str, actor: str, kwargs: dict) -> None:
     """Run one job. A Postgres advisory lock per job name means the same job never runs twice at once (a schedule,
     a Run now and a manual start racing each other would otherwise each pass the budget check and overspend)."""
-    if not s.scalar(text("SELECT pg_try_advisory_lock(hashtext(:k))"), {"k": f"ecosystem-job:{job}"}):
-        raise AlreadyRunning(f"{job} is already running")
-    try:
+    with advisory_lock(s.get_bind(), "hashtext(:k)", {"k": f"ecosystem-job:{job}"}) as got:
+        if not got:
+            raise AlreadyRunning(f"{job} is already running")
         _run_job(s, job, actor, kwargs)
-    finally:
-        s.execute(text("SELECT pg_advisory_unlock(hashtext(:k))"), {"k": f"ecosystem-job:{job}"})
 
 
 def _run_job(s, job: str, actor: str, kwargs: dict) -> None:
@@ -147,9 +160,9 @@ def run_due(session_factory, at: datetime | None = None) -> list[tuple[str, str]
     done = []
     s = session_factory()
     try:
-        if not s.scalar(text("SELECT pg_try_advisory_lock(:k)"), {"k": LOCK_KEY}):
-            return done
-        try:
+        with advisory_lock(s.get_bind(), ":k", {"k": LOCK_KEY}) as got:
+            if not got:
+                return done
             ensure_defaults(s)
             s.commit()
             due = [r.job for r in s.scalars(select(m.JobSchedule).where(m.JobSchedule.enabled.is_(True)))
@@ -173,9 +186,6 @@ def run_due(session_factory, at: datetime | None = None) -> list[tuple[str, str]
                 log.info("scheduled %s: %s%s", job, status,
                          f" | cost ${float(run.cost_usd or 0):.2f}, {run.claims_written} facts, "
                          f"{len(run.errors or [])} errors | {json.dumps(result, default=str)[:400]}" if run else "")
-        finally:
-            s.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": LOCK_KEY})
-            s.commit()
     finally:
         s.close()
     return done

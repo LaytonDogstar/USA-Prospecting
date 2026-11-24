@@ -7,9 +7,12 @@
 <div class="grid g2">
 <section class="panel table-wrap">
   <h2>Users</h2>
-  <table class="compact"><thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead><tbody>
+  <table class="compact"><thead><tr><th>Username</th><th>Role</th><th>Markets</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead><tbody>
   {% for u in users %}
     <tr><td>{{ u.username }}</td><td>{{ u.role }}</td>
+      <td><form method="post" action="/admin/users/{{ u.id }}" class="row">{{ csrf_field(csrf) }}
+        {% for code, label in all_markets.items() %}<label class="small" title="{{ label }}"><input type="checkbox" name="markets" value="{{ code }}" {{ 'checked' if code in (u.markets or []) }}> {{ code }}</label>{% endfor %}
+        <button name="action" value="markets" class="small">Save</button></form></td>
       <td>{% if not u.is_active %}<span class="chip">deactivated</span>{% elif u.locked_until %}<span class="chip warn">locked</span>{% else %}<span class="chip good">active</span>{% endif %}</td>
       <td class="small muted">{{ u.last_login_at.strftime('%d %b %Y %H:%M') if u.last_login_at else 'never' }}</td>
       <td>{% if u.id != user.id %}
@@ -32,9 +35,11 @@
     <label>Username <input name="username" required autocomplete="off"></label>
     <label>Password (at least {{ min_len }} characters) <input type="password" name="password" minlength="{{ min_len }}" autocomplete="new-password" required></label>
     <label>Role <select name="role"><option value="viewer">viewer (read only)</option><option value="admin">admin (can edit and decide)</option></select></label>
+    <fieldset class="row"><legend class="small">Markets they can see</legend>
+      {% for code, label in all_markets.items() %}<label><input type="checkbox" name="markets" value="{{ code }}" {{ 'checked' if code == 'US' }}> {{ label }}</label>{% endfor %}</fieldset>
     <button class="primary">Create</button>
   </form>
-  <p class="small muted">Accounts lock for 15 minutes after 5 failed sign-ins. Share passwords through a password manager, not chat or email.</p>
+  <p class="small muted">A user sees only their markets: the header switch, every list and every organisation page. Admins with one market can still reach Admin pages (budgets, schedules) for both. Accounts lock for 15 minutes after 5 failed sign-ins. Share passwords through a password manager, not chat or email.</p>
 </section>
 </div>
 {% endblock %}

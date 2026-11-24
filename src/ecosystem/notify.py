@@ -152,9 +152,11 @@ def budget_check(s, now: datetime | None = None) -> None:
             continue
         forecast = used / elapsed * days_in_month
         fmt = (lambda v: f"${v:,.2f}") if b["unit"] == "usd" else (lambda v: f"{v:,.0f} units")
-        name = b["provider"].capitalize()
+        mk = b.get("market", "US")
+        name = b["provider"].capitalize() + ("" if mk == "US" else f" ({m.MARKETS.get(mk, mk)})")
+        key = f"budget:{b['provider']}:{month}" if mk == "US" else f"budget:{b['provider']}:{mk}:{month}"
         if not (used >= limit * 0.8 or forecast > limit):  # no longer a worry (e.g. the budget was raised)
-            old = s.scalar(select(m.Notification).where(m.Notification.dedupe_key == f"budget:{b['provider']}:{month}", OPEN))
+            old = s.scalar(select(m.Notification).where(m.Notification.dedupe_key == key, OPEN))
             if old is not None:
                 resolve(s, old, "system", "the budget now covers the month at this pace")
             continue
@@ -165,7 +167,7 @@ def budget_check(s, now: datetime | None = None) -> None:
                 f"{name} budget runs out {when}",
                 f"Used {fmt(used)} of {fmt(limit)} this month; at this pace the month needs about {fmt(forecast)}. "
                 "Jobs stop cleanly at the cap. Raise the budget or lower the batch sizes if you want them to keep going.",
-                "/admin/research", dedupe_key=f"budget:{b['provider']}:{month}")
+                "/admin/research", dedupe_key=key)
 
 
 def review_summary(s) -> None:

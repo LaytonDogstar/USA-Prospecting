@@ -7,7 +7,7 @@ from markupsafe import Markup
 from pathlib import Path
 from urllib.parse import urlencode
 
-from fastapi import Depends, Request
+from fastapi import Depends, Request, HTTPException
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -44,6 +44,8 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> m.AppUser:
     if user is None or not user.is_active:
         request.session.clear()
         raise NotAuthenticated()
+    # the markets this user may see, in the app's order (US first)
+    request.state.markets = [mk for mk in m.MARKETS if mk in (user.markets or [])] or ["US"]
     if user.role == "admin":
         from ..notify import unread_count
         request.state.unread = unread_count(db, user.username)  # the header bell
@@ -84,14 +86,27 @@ def store_for(db: Session, user: m.AppUser) -> Store:
 
 def current_market(request: Request) -> str:
     """The market the user is looking at (header switch), kept in the session. US until they switch."""
-    mk = request.session.get("market", "US")
-    return mk if mk in m.MARKETS else "US"
+    allowed = allowed_markets(request)
+    mk = request.session.get("market", allowed[0])
+    return mk if mk in allowed else allowed[0]
+
+
+def allowed_markets(request: Request) -> list[str]:
+    return getattr(getattr(request, "state", None), "markets", None) or list(m.MARKETS)
+
+
+def require_market(request: Request, *orgs) -> None:
+    """Refuse (as not found) an organisation in a market this user can't see."""
+    allowed = allowed_markets(request)
+    if any(o is not None and o.market not in allowed for o in orgs):
+        raise HTTPException(404, "No such organisation")
 
 
 def render(request: Request, template: str, user: m.AppUser | None, **ctx):
     ctx.setdefault("flash", request.session.pop("flash", None))
     ctx.setdefault("market", current_market(request))
-    ctx.setdefault("markets", m.MARKETS)
+    ctx.setdefault("markets", {k: v for k, v in m.MARKETS.items() if k in allowed_markets(request)})
+    ctx.setdefault("all_markets", m.MARKETS)
     return templates.TemplateResponse(request, template, {"user": user, "csrf": csrf_token(request), **ctx})
 
 

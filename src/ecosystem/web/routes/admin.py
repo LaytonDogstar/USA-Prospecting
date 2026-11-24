@@ -89,22 +89,32 @@ def users_page(request: Request, db: Session = Depends(get_db), user=Depends(adm
     return render(request, "admin_users.html", user, users=users, min_len=MIN_PASSWORD_LENGTH, section="users")
 
 
+def _markets_from(form_values: list[str]) -> list[str]:
+    chosen = [mk for mk in m.MARKETS if mk in form_values]
+    if not chosen:
+        raise ValueError("choose at least one market")
+    return chosen
+
+
 @router.post("/users")
 def users_create(request: Request, username: str = Form(...), password: str = Form(...), role: str = Form("viewer"),
-                 db: Session = Depends(get_db), user=Depends(admin_user)):
+                 markets: list[str] = Form([]), db: Session = Depends(get_db), user=Depends(admin_user)):
     try:
-        create_user(db, username, password, role)
+        chosen = _markets_from(markets or ["US"])  # the form always sends its boxes; a bare post gets the US
+        new = create_user(db, username, password, role)
+        new.markets = chosen
     except ValueError as e:
         flash(request, f"Not created: {e}")
         return RedirectResponse("/admin/users", status_code=303)
-    store_for(db, user).audit("user.create", "app_user", None, None, {"username": username.lower(), "role": role})
+    store_for(db, user).audit("user.create", "app_user", None, None,
+                              {"username": username.lower(), "role": role, "markets": chosen})
     flash(request, f"Created {role} {username.lower()}.")
     return RedirectResponse("/admin/users", status_code=303)
 
 
 @router.post("/users/{uid}")
 def users_update(uid: int, request: Request, action: str = Form(...), password: str = Form(""), role: str = Form(""),
-                 db: Session = Depends(get_db), user=Depends(admin_user)):
+                 markets: list[str] = Form([]), db: Session = Depends(get_db), user=Depends(admin_user)):
     u = db.get(m.AppUser, uid)
     if u is None:
         raise HTTPException(404)
@@ -117,6 +127,16 @@ def users_update(uid: int, request: Request, action: str = Form(...), password: 
         u.is_active, u.failed_logins, u.locked_until = True, 0, None
     elif action == "role" and role in m.USER_ROLES:
         u.role = role
+    elif action == "markets":
+        try:
+            chosen = _markets_from(markets)
+        except ValueError as e:
+            flash(request, f"Not changed: {e}")
+            return RedirectResponse("/admin/users", status_code=303)
+        if u.id == user.id and not set(u.markets or []) <= set(chosen):
+            flash(request, "You can't take markets away from yourself; ask another admin.")
+            return RedirectResponse("/admin/users", status_code=303)
+        u.markets = chosen
     elif action == "password":
         if len(password) < MIN_PASSWORD_LENGTH:
             flash(request, f"Password must be at least {MIN_PASSWORD_LENGTH} characters.")
@@ -124,7 +144,8 @@ def users_update(uid: int, request: Request, action: str = Form(...), password: 
         u.password_hash, u.failed_logins, u.locked_until = _ph.hash(password), 0, None
     else:
         raise HTTPException(400, "Unknown action")
-    store_for(db, user).audit(f"user.{action}", "app_user", u.id, None, {"username": u.username, "role": u.role})
+    store_for(db, user).audit(f"user.{action}", "app_user", u.id, None,
+                              {"username": u.username, "role": u.role, "markets": u.markets})
     flash(request, f"Updated {u.username}.")
     return RedirectResponse("/admin/users", status_code=303)
 
@@ -375,9 +396,11 @@ async def research_budget(request: Request, db: Session = Depends(get_db), user=
     from ... import budget
     form = await request.form()
     try:
-        for p in m.PROVIDERS:
-            if form.get(p) not in (None, ""):
-                budget.set_limit(db, p, float(form.get(p)), user.username)
+        for mk in m.MARKETS:
+            for p in m.PROVIDERS:
+                field = p if mk == "US" else f"{p}@{mk}"
+                if form.get(field) not in (None, ""):
+                    budget.set_limit(db, p, float(form.get(field)), user.username, market=mk)
         flash(request, "Budgets saved.")
     except ValueError as e:
         flash(request, f"Not saved: {e}")

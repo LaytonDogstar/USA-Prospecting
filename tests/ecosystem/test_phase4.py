@@ -25,7 +25,7 @@ def test_budget_enforced(session):
     budget.check(session, "ahrefs", 20)
     with pytest.raises(budget.BudgetExceeded):
         budget.check(session, "ahrefs", 21)
-    summ = {b["provider"]: b for b in budget.summary(session)}
+    summ = {b["provider"]: b for b in budget.summary(session, ["US"])}
     assert summ["ahrefs"]["used"] == 80 and summ["ahrefs"]["remaining"] == 20
     assert summ["anthropic"]["unit"] == "usd"
 

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ... import models as m
 from ...decisions import DecisionError, apply_safe, decide as decide_item, suggest, summaries, undo_screen
-from ..deps import current_market, admin_view, admin_user, current_user, flash, get_db, render, store_for
+from ..deps import require_market, current_market, admin_view, admin_user, current_user, flash, get_db, render, store_for
 from .home import REVIEW_LABELS
 
 router = APIRouter()
@@ -65,6 +65,7 @@ def decide(item_id: int, request: Request, action: str = Form(...), note: str = 
     it = db.get(m.ReviewItem, item_id)
     if it is None or it.status != "open":
         raise HTTPException(404, "No open review item with that id")
+    require_market(request, *(db.get(m.Organisation, i) for i in it.entity_ids))
     try:
         done = decide_item(store_for(db, user), it, action, note)
     except DecisionError as e:
@@ -77,7 +78,7 @@ def decide(item_id: int, request: Request, action: str = Form(...), note: str = 
 def bulk(request: Request, kind: str = Form(...), db: Session = Depends(get_db), user=Depends(admin_user)):
     if kind not in REVIEW_LABELS:
         raise HTTPException(400, "Unknown tab")
-    out = apply_safe(store_for(db, user), kind)
+    out = apply_safe(store_for(db, user), kind, market=current_market(request))
     msg = f"Applied {out['applied']} suggested decisions; {out['left_for_you']} left for you to decide."
     if out["errors"]:
         msg += f" {len(out['errors'])} couldn't be applied: {'; '.join(out['errors'][:3])}"
@@ -91,6 +92,7 @@ def undo_screen_route(item_id: int, request: Request, note: str = Form(""), db: 
     it = db.get(m.ReviewItem, item_id)
     if it is None:
         raise HTTPException(404, "No review item with that id")
+    require_market(request, *(db.get(m.Organisation, i) for i in it.entity_ids))
     try:
         done = undo_screen(store_for(db, user), it, note)
     except DecisionError as e:
@@ -107,6 +109,7 @@ def ask_route(item_id: int, request: Request, questions: str = Form(...), invest
     it = db.get(m.ReviewItem, item_id)
     if it is None or it.status != "open":
         raise HTTPException(404, "No open review item with that id")
+    require_market(request, *(db.get(m.Organisation, i) for i in it.entity_ids))
     ids = list(it.entity_ids)
     target = {"left": ids[0] if ids else None, "right": ids[1] if len(ids) > 1 else None}.get(investigate, ids[0] if ids else None)
     try:

@@ -66,7 +66,8 @@ src/ecosystem/
   decisions.py   decide() = the one place a review item is acted on (single and bulk); suggest() = rule-based
                  suggested decision per item, `safe` ones can be applied in bulk by an admin (/review/bulk)
   scheduler.py   job_schedule: research / Ahrefs traffic / SERP / upkeep run by themselves when an admin turns
-                 them on; background thread every 5 min, Postgres advisory lock so one instance runs them.
+                 them on; background thread every 5 min, Postgres advisory lock so one instance runs them (locks are held
+                 on a dedicated connection, `advisory_lock()`: a Session can change pooled connection after a commit).
                  On in production (or ECOSYSTEM_SCHEDULER=on); off in tests and local dev
   assistant.py   daily assistant (schedule "assistant", last in the run order): applies safe suggestions as user
                  "assistant", writes a Claude recommendation onto every other open card (payload["assistant"]; never
@@ -99,7 +100,7 @@ scripts/portal.py  client for the live portal used by the scheduled Claude revie
                  ECOSYSTEM_USERNAME, ECOSYSTEM_PASSWORD): status, report, review, decide, ask, undo-screen, notify, run-now. Backed by the read-only
                  JSON routes in web/routes/api.py (/api/status, /api/report, /api/review, /api/csrf); decisions go
                  through the normal /review/{id}/decide form post. No commands for users, budgets, weights or imports
-migrations/      Alembic. 0001 = initial schema + entity_current view; 0002 = latest_score view; 0003 = provider_budget; 0004 = job_schedule; 0005 = notification; 0006 = research_request; 0007 = notification resolved_at; 0008 = person email_status / email_confidence / do_not_contact; 0009 = organisation.market and tracked_keyword.market
+migrations/      Alembic. 0001 = initial schema + entity_current view; 0002 = latest_score view; 0003 = provider_budget; 0004 = job_schedule; 0005 = notification; 0006 = research_request; 0007 = notification resolved_at; 0008 = person email_status / email_confidence / do_not_contact; 0009 = organisation.market and tracked_keyword.market; 0010 = per-market budgets/usage and app_user.markets
 tests/ecosystem/ pytest; conftest builds made-up workbooks. test_acceptance_real_data.py runs only
                  when the real files and data/reference/acceptance.json are present.
 ```
@@ -111,7 +112,10 @@ market). The possible-match sweep compares across markets only on an exact name 
 holds back the same group in the other. The header switch (`POST /market`, session) filters Home, Lenders, Supply,
 People, Review, Map and Leverage; States is US only. Seed files take an optional `market` column; an all-AU seed is
 stored as `our_relationships_seed_au.csv`. Research, contacts and Ahrefs traffic jobs are US-only until their AU
-versions are built.
+versions are built. Budgets are per provider and market (`provider_budget` keyed by provider + market, `api_usage.market`;
+`budget.check/record(..., market=)`; a market without a saved budget gets 0, so nothing is spent there until an admin
+sets it). Users see only their markets (`app_user.markets`, set under Admin → Users): the switch, lists, organisation
+pages, review decisions and person edits outside them are refused (`deps.require_market`, 404).
 
 Who is a lender (a buyer): a researched lender role (including `debt_relief`: debt relief / settlement / credit counselling, which buys declined-loan traffic on offer walls and is never screened out; `research.restore_debt_relief` in upkeep puts back any that were), or a lead-buying index with no supply role (`scoring.is_lender`, `footprint.LENDER_SQL`); marketplaces on lead-buying lists are supply. Price/volume fit peaks at $1,000-5,000 max loans and falls for prime-sized loans. Supply traffic is whole-site, so it counts only in part by category (`TRAFFIC_LOAN_SHARE`) until Phase 4 page-level sizing.
 

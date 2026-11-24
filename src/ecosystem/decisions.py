@@ -236,12 +236,16 @@ def undo_screen(store: Store, it: m.ReviewItem, note: str) -> str:
     return f"Restored {org.display_name}; it will be researched again."
 
 
-def apply_safe(store: Store, kind: str, limit: int = 500, note_prefix: str = "bulk") -> dict:
+def apply_safe(store: Store, kind: str, limit: int = 500, note_prefix: str = "bulk",
+               market: str | None = None) -> dict:
     """Apply every safe suggestion on one tab of the inbox (a person's click, or the daily assistant once an admin
     has switched it on). Each decision is recorded per item with its reason."""
     s = store.s
-    items = list(s.scalars(select(m.ReviewItem).where(m.ReviewItem.kind == kind, m.ReviewItem.status == "open")
-                           .order_by(m.ReviewItem.id).limit(limit)))
+    q = select(m.ReviewItem).where(m.ReviewItem.kind == kind, m.ReviewItem.status == "open")
+    if market:  # the bulk button applies to the market on screen only
+        from .web.views import REVIEW_IN_MARKET
+        q = q.where(text(REVIEW_IN_MARKET).bindparams(market=market))
+    items = list(s.scalars(q.order_by(m.ReviewItem.id).limit(limit)))
     done, skipped, errors = 0, 0, []
     for it in items:
         summ = summaries(s, {store.org(i).id for i in it.entity_ids} | set(it.entity_ids))

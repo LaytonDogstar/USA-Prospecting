@@ -31,18 +31,18 @@
 <section class="panel">
   <h2>Monthly budgets <span class="small muted">this calendar month</span></h2>
   <form method="post" action="/admin/research/budget" class="stack">{{ csrf_field(csrf) }}
-    <table class="compact"><thead><tr><th>Provider</th><th class="num">Used</th><th class="num">Limit</th><th></th></tr></thead><tbody>
+    <table class="compact"><thead><tr><th>Provider</th><th>Market</th><th class="num">Used</th><th class="num">Limit</th><th></th></tr></thead><tbody>
     {% for b in budgets %}
-      <tr><td>{{ b.provider | capitalize }}</td>
+      <tr><td>{{ b.provider | capitalize }}</td><td class="small">{{ markets.get(b.market, b.market) }}</td>
         <td class="num">{{ ('$%.2f' | format(b.used)) if b.unit == 'usd' else (b.used | num) ~ ' units' }}
           <div class="small muted">{{ '%.0f' | format(b.share * 100) }}%</div></td>
-        <td class="num"><input name="{{ b.provider }}" value="{{ '%.0f' | format(b.limit) }}" size="8" inputmode="decimal"></td>
+        <td class="num"><input name="{{ b.provider if b.market == 'US' else b.provider ~ '@' ~ b.market }}" aria-label="{{ b.provider }} {{ b.market }} limit" value="{{ '%.0f' | format(b.limit) }}" size="8" inputmode="decimal"></td>
         <td class="small muted">{{ 'USD' if b.unit == 'usd' else 'units' }}</td></tr>
     {% endfor %}
     </tbody></table>
     <button>Save budgets</button>
   </form>
-  <p class="small muted">Every job checks the budget before each call and stops when the next call would go over. Ahrefs usage is corrected to what Ahrefs actually charged after each run.</p>
+  <p class="small muted">Each market has its own budget for each provider; a market's jobs only spend from its own (Australia starts at 0, so nothing is spent there until you set it). Every job checks the budget before each call and stops when the next call would go over. Ahrefs usage is corrected to what Ahrefs actually charged after each run.</p>
 </section>
 </div>
 

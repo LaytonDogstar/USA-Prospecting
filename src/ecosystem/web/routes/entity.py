@@ -8,7 +8,7 @@ from sqlalchemy import select, text, or_, and_
 from sqlalchemy.orm import Session
 
 from ... import models as m
-from ..deps import admin_user, current_user, flash, get_db, render, store_for
+from ..deps import require_market, admin_user, current_user, flash, get_db, render, store_for
 from ..views import ROLE_LABELS
 
 router = APIRouter()
@@ -33,10 +33,12 @@ METRIC_LABELS = {
 }
 
 
-def _org_or_404(db: Session, org_id: int) -> m.Organisation:
+def _org_or_404(db: Session, org_id: int, request: Request | None = None) -> m.Organisation:
     org = db.get(m.Organisation, org_id)
     if org is None:
         raise HTTPException(404, "No such organisation")
+    if request is not None:
+        require_market(request, org)
     return org
 
 
@@ -49,7 +51,7 @@ def _source_label(src: m.Source, files: dict) -> str:
 
 @router.get("/org/{org_id}")
 def org_page(org_id: int, request: Request, db: Session = Depends(get_db), user=Depends(current_user)):
-    org = _org_or_404(db, org_id)
+    org = _org_or_404(db, org_id, request)
     if org.lifecycle == "merged" and org.merged_into_id:
         return RedirectResponse(f"/org/{org.merged_into_id}", status_code=303)
     oid = org.id
@@ -136,7 +138,7 @@ def _evidence(db: Session, claims: list[m.Claim], title: str, request: Request, 
 
 @router.get("/org/{org_id}/evidence/{attribute}")
 def evidence_attribute(org_id: int, attribute: str, request: Request, db: Session = Depends(get_db), user=Depends(current_user)):
-    org = _org_or_404(db, org_id)
+    org = _org_or_404(db, org_id, request)
     claims = list(db.scalars(select(m.Claim).where(m.Claim.entity_id == org_id, m.Claim.attribute == attribute)
                              .order_by(m.Claim.created_at.desc(), m.Claim.id.desc())))
     return _evidence(db, claims, f"{org.display_name}: {attribute.replace('_', ' ')}", request, user, org)
@@ -176,7 +178,7 @@ def source_page(source_id: int, request: Request, db: Session = Depends(get_db),
 def set_relationship(org_id: int, request: Request, role: str = Form(...), status: str = Form(...), owner: str = Form(""),
                      notes: str = Form(""), needs_confirmation: str = Form(""), db: Session = Depends(get_db),
                      user=Depends(admin_user)):
-    org = _org_or_404(db, org_id)
+    org = _org_or_404(db, org_id, request)
     if role not in m.OUR_ROLES or status not in m.OUR_STATUSES:
         raise HTTPException(400, "Unknown role or status")
     st = store_for(db, user)
@@ -193,7 +195,7 @@ def set_relationship(org_id: int, request: Request, role: str = Form(...), statu
 @router.post("/org/{org_id}/compliance")
 def set_compliance(org_id: int, request: Request, value: str = Form(...), note: str = Form(...), db: Session = Depends(get_db),
                    user=Depends(admin_user)):
-    org = _org_or_404(db, org_id)
+    org = _org_or_404(db, org_id, request)
     if value not in m.COMPLIANCE_VALUES or not note.strip():
         raise HTTPException(400, "Choose clear, review or blocked and give a reason")
     cs = db.get(m.ComplianceStatus, org.id)
@@ -215,7 +217,7 @@ def add_person(org_id: int, request: Request, name: str = Form(...), title: str 
                linkedin_url: str = Form(""), email: str = Form(""), source: str = Form(...),
                lawful_basis_note: str = Form("UK GDPR legitimate interests (B2B contact)"),
                db: Session = Depends(get_db), user=Depends(admin_user)):
-    org = _org_or_404(db, org_id)
+    org = _org_or_404(db, org_id, request)
     if not name.strip() or not source.strip():
         raise HTTPException(400, "Name and source are required")
     if linkedin_url and not linkedin_url.startswith("https://"):
@@ -236,7 +238,7 @@ def find_org_contacts(org_id: int, request: Request, db: Session = Depends(get_d
     """One Hunter lookup for this organisation now (safeguards still apply: possible partners are never looked up)."""
     from ...contacts import find_contacts
     from ...sources.hunter import HunterError
-    org = _org_or_404(db, org_id)
+    org = _org_or_404(db, org_id, request)
     try:
         res = find_contacts(store_for(db, user), org_ids=[org.id])
     except HunterError as e:
@@ -258,7 +260,7 @@ def find_org_contacts(org_id: int, request: Request, db: Session = Depends(get_d
 def org_do_not_contact(org_id: int, request: Request, on: str = Form("1"), note: str = Form(""),
                        db: Session = Depends(get_db), user=Depends(admin_user)):
     from ...contacts import set_do_not_contact
-    org = _org_or_404(db, org_id)
+    org = _org_or_404(db, org_id, request)
     set_do_not_contact(store_for(db, user), org, on == "1", note.strip()[:500])
     flash(request, "Marked do not contact." if on == "1" else "Contact allowed again.")
     return RedirectResponse(f"/org/{org.id}#people", status_code=303)
@@ -270,6 +272,7 @@ def person_do_not_contact(person_id: int, request: Request, on: str = Form("1"),
     p = db.get(m.Person, person_id)
     if p is None:
         raise HTTPException(404, "No such person")
+    require_market(request, db.get(m.Organisation, p.organisation_id) if p.organisation_id else None)
     before = p.do_not_contact
     p.do_not_contact = on == "1"
     store_for(db, user).audit("person.do_not_contact", "organisation", p.organisation_id, {"person": p.name, "on": before},
@@ -285,6 +288,7 @@ def delete_person(person_id: int, request: Request, reason: str = Form(...), db:
     p = db.get(m.Person, person_id)
     if p is None:
         raise HTTPException(404, "No such person")
+    require_market(request, db.get(m.Organisation, p.organisation_id) if p.organisation_id else None)
     org_id = p.organisation_id
     store_for(db, user).audit("person.delete", "organisation", org_id, {"person": p.name}, {"note": reason.strip()})
     db.execute(m.NameAlias.__table__.delete().where(m.NameAlias.entity_id == p.id))
@@ -304,7 +308,7 @@ def remove_role(org_id: int, role: str, request: Request, reason: str = Form(...
                 user=Depends(admin_user)):
     """Correct a wrong role (e.g. from research). The claims behind it stay on record, marked rejected."""
     from ...scoring import rescore
-    org = _org_or_404(db, org_id)
+    org = _org_or_404(db, org_id, request)
     r = db.scalar(select(m.OrgRole).where(m.OrgRole.organisation_id == org.id, m.OrgRole.role == role))
     if r is None or not reason.strip():
         raise HTTPException(400, "No such role, or no reason given")
@@ -326,6 +330,7 @@ def ask_about_org(org_id: int, request: Request, questions: str = Form(...), mod
                   db: Session = Depends(get_db), user=Depends(admin_user)):
     """Send questions about an organisation to the researchers; the answers come back as a research card."""
     from ...research import RequestRefused, ask
+    _org_or_404(db, org_id, request)
     try:
         req = ask(store_for(db, user), org_id, questions.splitlines(), mode,
                   context=f"{user.username} asked about this organisation directly")

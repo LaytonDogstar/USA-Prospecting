@@ -291,7 +291,7 @@ def test_admin_research_page(web, session, monkeypatch):
     assert "ANTHROPIC_API_KEY isn&#39;t set" in r.text
     web.post("/admin/research/budget", data={"anthropic": "150", "ahrefs": "90000", "csrf": csrf(web, "/admin/research")})
     session.expire_all()
-    assert float(session.get(m.ProviderBudget, "anthropic").monthly_limit) == 150
+    assert float(session.get(m.ProviderBudget, ("anthropic", "US")).monthly_limit) == 150
     web.post("/admin/research/keywords", data={"action": "seed", "csrf": csrf(web, "/admin/research")})
     assert "bad credit loans" in web.get("/admin/research").text
     # viewers can't reach it

@@ -25,10 +25,10 @@
     <a href="/guide" class="{{ 'on' if path.startswith('/guide') }}">Guide</a>{% endif %}
     {% if user.role == 'admin' %}<a href="/admin/weights" class="{{ 'on' if path.startswith('/admin') }}">Admin</a>{% endif %}
   </nav>
-  <form method="post" action="/market" class="market-switch" aria-label="Market">
+  {% if markets | length > 1 %}<form method="post" action="/market" class="market-switch" aria-label="Market">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ request.url.path }}">
     {% for code, label in markets.items() %}<button name="market" value="{{ code }}" class="{{ 'on' if code == market }}" title="{{ label }}" aria-pressed="{{ 'true' if code == market else 'false' }}">{{ code }}</button>{% endfor %}
-  </form>
+  </form>{% elif market != 'US' %}<span class="chip" style="margin-right:10px">{{ market }}</span>{% endif %}
   <div class="who">{% set unread_n = request.state.unread if request.state.unread is defined else 0 %}
     {% if user.role == 'admin' %}<a href="/notifications" class="bell {{ 'has' if unread_n }}" title="Notifications" aria-label="Notifications: {{ unread_n }} unread">Notifications{% if unread_n %} <b>{{ unread_n }}</b>{% endif %}</a>{% endif %}
     <span>{{ user.username }}{% if user.role != 'admin' %} (viewer){% endif %}</span>

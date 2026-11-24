@@ -20,7 +20,7 @@ def test_schedules_off_by_default_and_upkeep_runs(session, migrated, monkeypatch
         r.enabled, r.next_run_at = True, scheduler.now() - timedelta(minutes=1)
     session.commit()
     done = dict(scheduler.run_due(factory))
-    assert done["upkeep"] == "done"
+    assert done.get("upkeep") == "done", done
     assert done["research"].startswith("skipped") and "ANTHROPIC_API_KEY" in done["research"]
     session.expire_all()
     up = session.get(m.JobSchedule, "upkeep")

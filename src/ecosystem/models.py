@@ -441,6 +441,9 @@ class AppUser(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(TS)
     failed_logins: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(TS)
+    # the markets this user sees (US, AU); pages, organisation pages and edits outside them are refused
+    markets: Mapped[list[str]] = mapped_column(ARRAY(String(2)), default=lambda: ["US", "AU"],
+                                               server_default="{US,AU}")
 
 
 # ---------------------------------------------------------------- jobs (Stage 2)
@@ -462,15 +465,17 @@ class ApiUsage(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     job_run_id: Mapped[int | None] = mapped_column(ForeignKey("job_run.id"))
     provider: Mapped[str] = mapped_column(String(20))
+    market: Mapped[str] = mapped_column(String(2), default="US", server_default="US")
     units: Mapped[float] = mapped_column(Numeric(14, 2))
     cost_usd: Mapped[float] = mapped_column(Numeric(10, 4))
     at: Mapped[datetime] = mapped_column(TS, default=utcnow)
 
 
 class ProviderBudget(Base):
-    """Monthly cap per external provider. Anthropic in USD; Ahrefs and Similarweb in their own units."""
+    """Monthly cap per external provider and market. Anthropic in USD; Ahrefs, Hunter and Similarweb in their units."""
     __tablename__ = "provider_budget"
     provider: Mapped[str] = mapped_column(String(20), primary_key=True)
+    market: Mapped[str] = mapped_column(String(2), primary_key=True, default="US", server_default="US")
     monthly_limit: Mapped[float] = mapped_column(Numeric(14, 2))
     unit: Mapped[str] = mapped_column(String(10))  # usd | units
     updated_by: Mapped[str] = mapped_column(Text)
