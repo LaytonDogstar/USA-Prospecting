@@ -46,6 +46,9 @@ def import_all(store: Store, raw: Path | None = None, ref: Path | None = None) -
     for name in ("our_relationships_seed.csv", "our_relationships_seed_au.csv"):
         if (ref / name).exists():
             out[name] = import_relationship_seed(store, ref / name)
+    from .asic import import_asic_licences
+    for path in sorted(raw.glob("credit_lic_*.csv")):  # Australia: ASIC credit licence register
+        out[path.name] = import_asic_licences(store, path)
     out["name_dedup_suggestions"] = name_dedup_suggestions(store)
     out["shared_key_suggestions"] = shared_key_suggestions(store)
     out["possible_match_sweep"] = possible_match_sweep(store)
@@ -105,6 +108,7 @@ def main(argv=None) -> int:
     sub.add_parser("bootstrap-admin", help="create the first admin from ADMIN_USERNAME / ADMIN_PASSWORD")
     sub.add_parser("ahrefs-plan", help="show the Ahrefs plan, limits and usage (free)")
     sub.add_parser("hunter-account", help="show the Hunter plan and credits used (free)")
+    sub.add_parser("asic-refresh", help="fetch this month's ASIC credit licence register (free) and import it")
     ct = sub.add_parser("contacts", help="find decision-makers' work emails with Hunter for the best prospects")
     ct.add_argument("--limit", type=int, default=10)
     ct.add_argument("--org", type=int, action="append", help="look up these organisation ids only")
@@ -170,6 +174,9 @@ def main(argv=None) -> int:
         elif a.cmd == "ahrefs-plan":
             from .sources.ahrefs import AhrefsClient
             print(json.dumps(AhrefsClient(s).subscription(), indent=2))
+        elif a.cmd == "asic-refresh":
+            from .asic import refresh
+            print(json.dumps(refresh(store), indent=2, default=str))
         elif a.cmd == "hunter-account":
             from .sources.hunter import HunterClient
             print(json.dumps(HunterClient(s).account(), indent=2, default=str))

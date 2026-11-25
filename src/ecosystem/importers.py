@@ -24,7 +24,7 @@ TRIBAL_WORDS = re.compile(r"\b(tribe|tribal|band|nation|indian|indians|village|r
                           r"ojibwe|pomo|community|reservation)\b", re.I)
 
 
-IMPORT_ORDER = ("targets", "traffic_options", "owner_groups", "relationship_seed")
+IMPORT_ORDER = ("targets", "traffic_options", "owner_groups", "relationship_seed", "asic_credit_licence")
 
 
 def detect_kind(path: Path) -> str | None:
@@ -44,7 +44,9 @@ def detect_kind(path: Path) -> str | None:
         header = path.read_text(encoding="utf-8-sig").splitlines()[0].lower().replace(" ", "")
     except Exception:
         return None
-    cols = set(header.split(","))
+    cols = {c.strip('"') for c in header.split(",")}
+    if {"cred_lic_num", "cred_lic_name", "cred_lic_authorisations"} <= cols:
+        return "asic_credit_licence"
     if {"group", "member", "relation"} <= cols:
         return "owner_groups"
     if {"name", "role", "status"} <= cols:

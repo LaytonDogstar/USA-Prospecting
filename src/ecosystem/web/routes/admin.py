@@ -23,6 +23,7 @@ UPLOAD_RULES = [  # (filename pattern, folder)
     (re.compile(r"^CLE_.*traffic_options.*\.xlsx$"), RAW_DIR),
     (re.compile(r"^owner_groups\.csv$"), REFERENCE_DIR),
     (re.compile(r"^our_relationships_seed(_au)?\.csv$"), REFERENCE_DIR),
+    (re.compile(r"^credit_lic_.+\.csv$"), RAW_DIR),
 ]
 COMPONENT_HELP = {
     "lead_buying": "Lead-buying strength index (partner lists, traffic, disclosures, affiliate programme, hiring)",
@@ -219,7 +220,8 @@ async def imports_upload(request: Request, upload: UploadFile = File(...), db: S
     target = {"targets": raw / f"targets_{stamp}.xlsx",
               "traffic_options": raw / f"CLE_traffic_options_{stamp}.xlsx",
               "owner_groups": ref / "owner_groups.csv",
-              "relationship_seed": ref / "our_relationships_seed.csv"}[kind]
+              "relationship_seed": ref / "our_relationships_seed.csv",
+              "asic_credit_licence": raw / f"credit_lic_{stamp}.csv"}[kind]
     if kind == "relationship_seed":
         from ...importers import seed_market
         if seed_market(tmp_path) == "AU":  # Australia's partners: kept beside the US file, never over it
@@ -252,7 +254,8 @@ async def imports_upload(request: Request, upload: UploadFile = File(...), db: S
                     "was imported on top. Use 'Reset and re-import' if the results look wrong.")
     st.audit("import.upload", "import_file", None, None,
              {"file": original, "saved_as": target.name, "kind": kind, "result": {k: str(v)[:200] for k, v in out.items()}})
-    missing = [k for k in IMPORT_ORDER if not db.scalar(select(m.ImportFile.id).where(m.ImportFile.kind == k).limit(1))]
+    missing = [k for k in IMPORT_ORDER if k != "asic_credit_licence"  # optional: Australia, fetched monthly anyway
+               and not db.scalar(select(m.ImportFile.id).where(m.ImportFile.kind == k).limit(1))]
     if missing:
         msg += " Still to upload: " + ", ".join(k.replace("_", " ") for k in missing) + "."
     flash(request, msg)

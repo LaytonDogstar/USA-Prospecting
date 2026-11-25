@@ -34,6 +34,7 @@ ROLES = (
     "lead_network_pingtree", "connector_brand", "comparison_offer_wall", "content_affiliate",
     "sponsored_publisher_agency", "affiliate_cpa_network", "paid_media_platform", "fintech_decline_source",
     "debt_relief",  # debt relief / settlement / credit counselling: buys declined-loan traffic, e.g. on offer walls
+    "lender_au_acl",  # Australia: holds an ASIC credit licence authorising it to provide credit (or consumer leases)
 )
 EDGE_TYPES = (
     "owns", "operates", "same_owner_as", "sells_leads_to", "buys_leads_from", "lists_offer_of",
@@ -50,7 +51,8 @@ OUR_ROLES = ("buyer", "supplier", "both", "network")
 OUR_STATUSES = ("live", "paused", "contracting", "in_talks", "former", "prospect", "parked", "dropped")
 OUR_SOURCES = ("internal_db", "csv", "manual", "seed")
 COMPLIANCE_FLAG_TYPES = (
-    "cfpb_action", "ftc_action", "state_ag", "state_licence_alert", "rent_a_tribe_litigation", "class_action", "other",
+    "cfpb_action", "ftc_action", "state_ag", "state_licence_alert", "rent_a_tribe_litigation", "class_action",
+    "asic_licence", "other",
 )
 COMPLIANCE_VALUES = ("clear", "review", "blocked")
 REVIEW_KINDS = (
@@ -229,7 +231,7 @@ class ImportFile(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     file_name: Mapped[str] = mapped_column(Text)
     sha256: Mapped[str] = mapped_column(String(64))
-    kind: Mapped[str] = mapped_column(String(30))  # traffic_options | targets | owner_groups | relationship_seed
+    kind: Mapped[str] = mapped_column(String(30))  # traffic_options | targets | owner_groups | relationship_seed | asic_credit_licence
     imported_by: Mapped[str] = mapped_column(Text)
     imported_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
     row_counts: Mapped[dict] = mapped_column(JSONB, default=dict)

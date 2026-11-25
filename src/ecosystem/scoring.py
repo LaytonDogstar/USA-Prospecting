@@ -20,7 +20,7 @@ from .store import Store
 
 # buyer roles ("lenders" in the app); debt relief buys declined-loan traffic (offer walls) though it doesn't lend
 LENDER_ROLES = ("lender_tribal", "lender_state_licensed", "lender_bank_partner", "lender_cab_cso", "servicer",
-                "debt_relief")
+                "debt_relief", "lender_au_acl")
 SUPPLY_ROLES = ("lead_network_pingtree", "connector_brand", "comparison_offer_wall", "content_affiliate",
                 "sponsored_publisher_agency", "affiliate_cpa_network", "paid_media_platform", "fintech_decline_source")
 
@@ -36,7 +36,7 @@ DEFAULT_WEIGHTS = {
 # Per-value scores inside components. Stored with the weights so they are versioned too.
 DEFAULT_TABLES = {
     "type_fit": {"servicer": 100, "lender_tribal": 90, "lender_bank_partner": 75, "lender_cab_cso": 65,
-                 "lender_state_licensed": 55, "debt_relief": 45},
+                 "lender_state_licensed": 55, "debt_relief": 45, "lender_au_acl": 55},
     "segment": {"subprime": 100, "nonprime": 80, "all": 70, "near-prime": 45, "prime": 0},
     "relevance": {"lead_network_pingtree": 100, "connector_brand": 90, "comparison_offer_wall": 85,
                   "affiliate_cpa_network": 70, "fintech_decline_source": 70, "content_affiliate": 60,

@@ -9,9 +9,9 @@ Two tools live here:
 - **`src/ecosystem/`: the US lead-gen industry map ("Ecosystem").** This is the main build. Postgres + Python. Its plan and phases are in `docs/PLAN.md`.
 - **`src/prospecting/`: the older SQLite tool.** It builds buyer profiles from pingtree exports and the 2026-09 targets workbook. It is kept working until the Ecosystem app covers it; its buyer profiles will feed buyer-value scoring. Don't extend it.
 
-Status: Phases 1–3 are done and deployed on Railway. Australia is being added as a second market (phase 1 done:
-the market field and the header switch; next: ASIC credit licence register and AFCA complaint data, AU research, AU
-contacts). Phase 4 (enrichment) is built: Ahrefs traffic and SERP jobs, the Anthropic research pass, and contacts (Hunter, `contacts.py`), run from Admin → Research & budgets once `AHREFS_API_KEY` / `ANTHROPIC_API_KEY` / `HUNTER_API_KEY` are set in Railway.
+Status: Phases 1–3 are done and deployed on Railway. Australia is being added as a second market (done: the market
+field and switch, per-market budgets and user access, the ASIC credit licence register; next: AFCA complaint data, AU
+research, AU contacts). Phase 4 (enrichment) is built: Ahrefs traffic and SERP jobs, the Anthropic research pass, and contacts (Hunter, `contacts.py`), run from Admin → Research & budgets once `AHREFS_API_KEY` / `ANTHROPIC_API_KEY` / `HUNTER_API_KEY` are set in Railway.
 
 ## Rules that matter
 
@@ -54,6 +54,11 @@ src/ecosystem/
                  blocked / screened out / do-not-contact and have a website; best 3 by title, no generic inboxes, invalid
                  never saved; nobody suitable → research request in "people" mode (names + titles, never LinkedIn);
                  approved names become people without email and the next run uses Hunter's email finder. Rechecks after 90 days
+  asic.py        Australia: ASIC Credit Licensee Dataset (data.gov.au, monthly, free). Imports licensees that may provide
+                 credit / consumer leases (role lender_au_acl) or debt management (role debt_relief); brokers (credit
+                 service only) are left out. Found again by licence number on later files; licences that leave the
+                 register get a 'not on register' claim; suspended ones a compliance flag. refresh() = the monthly
+                 "asic_register" schedule (fetch + import + AU possible-match sweep + AU re-score); `asic-refresh` CLI
   enrich.py      fill_traffic (Ahrefs metrics → accepted measurement claims + material-change review items),
                  serp_snapshot (tracked keywords → page entities with page traffic; unknown sites → new_entrant)
   research.py    research pass with Claude (web_search/web_fetch + strict record_findings tool). Findings must cite

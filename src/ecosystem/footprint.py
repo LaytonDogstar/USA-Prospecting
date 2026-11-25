@@ -15,7 +15,8 @@ from .parsing import US_STATES
 # Who counts as a lender: the same rule as scoring.is_lender, used by the lenders table and the state map.
 LENDER_SQL = """(
   EXISTS (SELECT 1 FROM org_role r WHERE r.organisation_id = o.id
-          AND r.role IN ('lender_tribal','lender_state_licensed','lender_bank_partner','lender_cab_cso','servicer'))
+          AND r.role IN ('lender_tribal','lender_state_licensed','lender_bank_partner','lender_cab_cso','servicer',
+                         'debt_relief','lender_au_acl'))
   OR (EXISTS (SELECT 1 FROM score sc WHERE sc.entity_id = o.id AND sc.score_type = 'lbs_index')
       AND NOT EXISTS (SELECT 1 FROM org_role r WHERE r.organisation_id = o.id
                       AND r.role IN ('lead_network_pingtree','connector_brand','comparison_offer_wall','content_affiliate',

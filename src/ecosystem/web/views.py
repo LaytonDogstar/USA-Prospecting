@@ -12,6 +12,7 @@ ROLE_LABELS = {
     "content_affiliate": "Content affiliate", "sponsored_publisher_agency": "Sponsored publisher / agency",
     "affiliate_cpa_network": "Affiliate / CPA network", "paid_media_platform": "Paid media",
     "fintech_decline_source": "Fintech / decline source", "debt_relief": "Debt relief (offer-wall buyer)",
+    "lender_au_acl": "Credit provider (ASIC licence)",
 }
 
 BASE = """
