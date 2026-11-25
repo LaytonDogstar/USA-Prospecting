@@ -174,3 +174,19 @@ def test_australian_research_targets_prompt_budget_and_scoring(store, tmp_path):
     sc = store.s.scalar(select(m.Score).where(m.Score.entity_id == wren.id, m.Score.score_type == "buyer_value")
                         .order_by(m.Score.id.desc()))
     assert sc.components["components"]["type_fit"]["score"] == 100
+
+
+def test_core_name_matches_partner_with_loans_suffix(store, tmp_path):
+    from ecosystem.normalise import core_name
+    assert core_name("Fundo Loans Pty Ltd") == core_name("Fundo") == "fundo"
+    assert core_name("Cash Train") == "cashtrain" and core_name("Loans") == "" and core_name("Easy Finance") == ""
+    seed = write_csv(tmp_path / "au.csv", ["name", "aliases", "domains", "role", "status", "notes", "market"],
+                     [["Quoll", "", "", "buyer", "paused", "AU buyer", "AU"]])
+    import_relationship_seed(store, seed)
+    import_asic_licences(store, _file(tmp_path, "credit_lic_209901.csv",
+                                      [_row("900007", "QUOLL LOANS PTY LTD", PROVIDER)]))
+    possible_match_sweep(store)
+    item = store.s.scalar(select(m.ReviewItem).where(m.ReviewItem.kind == "possible_match"))
+    assert item is not None and any("apart from words like Loans" in r for r in item.payload["reasons"])
+    from ecosystem.research import pilot_targets
+    assert not pilot_targets(store.s, 10, market="AU")  # held back from research until a person decides

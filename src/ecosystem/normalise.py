@@ -42,6 +42,21 @@ def norm_name(name: str | None) -> str:
     return " ".join(words)
 
 
+# trailing words that don't tell one lender from another: "Fundo Loans Pty Ltd" and "Fundo" share the core "fundo"
+CORE_STRIP = {"loans", "loan", "finance", "financial", "financials", "lending", "lender", "credit", "money",
+              "australia", "aus", "au", "group", "holdings", "services", "solutions", "capital", "funding", "co",
+              "pty", "ltd", "limited", "proprietary"}
+
+
+def core_name(name: str | None) -> str:
+    """compact() with trailing lending / place / group words removed; '' when too short or generic to match on."""
+    words = norm_name(name).split()
+    while len(words) > 1 and words[-1] in CORE_STRIP:
+        words = words[:-1]
+    core = "".join(words)
+    return core if len(core) >= 4 and core not in CORE_STRIP and not is_generic(" ".join(words)) else ""
+
+
 def compact(name: str | None) -> str:
     """norm_name without spaces, so 'Acme Loans' == 'AcmeLoans' == 'acmeloans'."""
     return norm_name(name).replace(" ", "")

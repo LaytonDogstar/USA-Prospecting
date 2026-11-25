@@ -7,7 +7,7 @@ from collections import defaultdict
 from sqlalchemy import select
 
 from . import models as m
-from .normalise import compact, contains_name, domain_stem, is_generic, name_similarity
+from .normalise import core_name, compact, contains_name, domain_stem, is_generic, name_similarity
 from .store import Store
 
 LIVE_LIKE = ("live", "paused", "contracting", "in_talks", "former")
@@ -20,14 +20,17 @@ def _all_keys(store: Store, ids: set[int] | None = None) -> dict[int, dict]:
     q_orgs = select(m.Organisation.id, m.Organisation.parent_id).where(m.Organisation.lifecycle.not_in(("merged", "screened_out")))
     if ids is not None:
         q_orgs = q_orgs.where(m.Organisation.id.in_(ids))
-    keys = {oid: {"names": set(), "domains": set(), "stems": set(), "groups": {pid} - {None}, "tribes": set()}
-            for oid, pid in s.execute(q_orgs)}
+    keys = {oid: {"names": set(), "domains": set(), "stems": set(), "groups": {pid} - {None}, "tribes": set(),
+                  "cores": set()} for oid, pid in s.execute(q_orgs)}
     want = set(keys)
     def rows(q):
         return s.execute(q).all() if ids is None else s.execute(q.where(q.selected_columns[0].in_(want))).all()
-    for eid, comp in rows(select(m.NameAlias.entity_id, m.NameAlias.alias_compact)):
+    for eid, comp, alias in rows(select(m.NameAlias.entity_id, m.NameAlias.alias_compact, m.NameAlias.alias)):
         if eid in keys and comp:
             keys[eid]["names"].add(comp)
+            core = core_name(alias)
+            if core:
+                keys[eid]["cores"].add(core)
     for oid, norm in rows(select(m.Brand.organisation_id, m.Brand.name_norm)):
         if oid in keys:
             keys[oid]["names"].add(norm.replace(" ", ""))
@@ -48,7 +51,7 @@ def _all_keys(store: Store, ids: set[int] | None = None) -> dict[int, dict]:
 
 def _keys(store: Store, org_id: int) -> dict:
     return _all_keys(store, {org_id}).get(org_id) or {"names": set(), "domains": set(), "stems": set(),
-                                                      "groups": set(), "tribes": set()}
+                                                      "groups": set(), "tribes": set(), "cores": set()}
 
 
 def possible_match_sweep(store: Store, only: set[int] | None = None) -> dict:
@@ -65,8 +68,10 @@ def possible_match_sweep(store: Store, only: set[int] | None = None) -> dict:
     others = list(keys)
 
     # index other orgs by each key so the sweep is not O(n^2)
-    by_name, by_domain, by_group = defaultdict(set), defaultdict(set), defaultdict(set)
+    by_name, by_domain, by_group, by_core = defaultdict(set), defaultdict(set), defaultdict(set), defaultdict(set)
     for oid, k in keys.items():
+        for c in k.get("cores", ()):
+            by_core[c].add(oid)
         for n in k["names"] | k["stems"]:
             by_name[n].add(oid)
         for d in k["domains"]:
@@ -87,6 +92,10 @@ def possible_match_sweep(store: Store, only: set[int] | None = None) -> dict:
                 continue
             for o in by_name[n]:
                 hits[o].append(f"same name/brand '{n}'")
+        for c in rk.get("cores", ()):
+            for o in by_core[c]:
+                if f"same name/brand '{c}'" not in hits[o]:
+                    hits[o].append(f"same name apart from words like Loans / Finance ('{c}')")
         for g in rk["groups"] | rk["tribes"]:
             for o in by_group[g]:
                 hits[o].append(f"same operator group or tribe ({store.org(g).display_name})")
@@ -102,7 +111,8 @@ def possible_match_sweep(store: Store, only: set[int] | None = None) -> dict:
             other = store.s.get(m.Organisation, o)
             if o == rid or other.lifecycle == "merged" or o == rel_org.parent_id or o in rk["tribes"]:
                 continue  # itself, or the group/tribe it already sits under
-            strength = "strong" if any(r.startswith(("same domain", "same name")) for r in reasons) else "weak"
+            strength = "strong" if any(r.startswith(("same domain", "same name/brand")) for r in reasons) else \
+                "medium" if any(r.startswith("same name apart") for r in reasons) else "weak"
             if other.market != rel_org.market:
                 if strength != "strong":
                     continue  # across markets only an exact name or website counts (lookalike names are common)
