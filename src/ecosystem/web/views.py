@@ -48,7 +48,8 @@ LEFT JOIN organisation p ON p.id = o.parent_id
 LEFT JOIN latest_score sc ON sc.entity_id = o.id AND sc.score_type = :score_type
 LEFT JOIN latest_score lbs ON lbs.entity_id = o.id AND lbs.score_type = 'lbs_index'
 LEFT JOIN latest_score ref ON ref.entity_id = o.id AND ref.score_type = 'sheet_reference'
-LEFT JOIN LATERAL (SELECT value FROM metric_snapshot ms WHERE ms.entity_id = o.id AND ms.metric = 'cfpb_complaints_12m'
+LEFT JOIN LATERAL (SELECT value FROM metric_snapshot ms WHERE ms.entity_id = o.id
+                     AND ms.metric IN ('cfpb_complaints_12m', 'idr_complaints_12m')  -- US: CFPB; Australia: ASIC IDR
                    ORDER BY retrieved_at DESC, id DESC LIMIT 1) cmp ON true
 LEFT JOIN LATERAL (SELECT value FROM metric_snapshot ms WHERE ms.entity_id = o.id AND ms.metric = 'ahrefs_organic_visits'
                    ORDER BY retrieved_at DESC, id DESC LIMIT 1) org_v ON true

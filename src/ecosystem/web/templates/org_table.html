@@ -48,7 +48,7 @@
   <thead><tr>
     {{ sort_th('name', 'Name') }}<th>Type</th><th>Owner group</th>
     {{ sort_th('score', 'Buyer value' if is_l else 'Supply value', 'num') }}
-    {% if is_l %}{{ sort_th('lbs', 'Lead-buying', 'num') }}{{ sort_th('loan', 'Max loan', 'num') }}<th class="num">States</th>{{ sort_th('complaints', 'CFPB 12m', 'num') }}{{ sort_th('sheet', 'Sheet score', 'num') }}
+    {% if is_l %}{{ sort_th('lbs', 'Lead-buying', 'num') }}{{ sort_th('loan', 'Max loan', 'num') }}<th class="num">States</th>{{ sort_th('complaints', 'CFPB 12m' if market == 'US' else 'Complaints 12m', 'num') }}{{ sort_th('sheet', 'Sheet score', 'num') }}
     {% else %}{{ sort_th('tier', 'Priority') }}{{ sort_th('organic', 'Organic/mo', 'num') }}{% endif %}
     <th>Ours</th><th>Compliance</th>
   </tr></thead>

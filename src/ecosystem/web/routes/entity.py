@@ -27,7 +27,10 @@ PROFILE = [
 ]
 HIDDEN = {"brand", "domain", "declared_domain", "role", "website"}
 METRIC_LABELS = {
-    "cfpb_complaints_12m": "CFPB complaints (12m)", "cfpb_complaints_installment_12m": "… installment",
+    "cfpb_complaints_12m": "CFPB complaints (12m)", "idr_complaints_12m": "Complaints (12m, ASIC IDR data)",
+    "idr_complaints_sacc_12m": "… small amount credit contracts", "idr_complaints_personal_loans_12m": "… personal loans",
+    "idr_complaints_bnpl_12m": "… buy now, pay later", "idr_complaints_debt_management_12m": "… debt management / credit repair",
+    "idr_complaints_lines_of_credit_12m": "… lines of credit / overdrafts", "cfpb_complaints_installment_12m": "… installment",
     "cfpb_complaints_payday_12m": "… payday", "cfpb_complaints_loc_12m": "… line of credit",
     "ahrefs_organic_visits": "Organic visits / month (Ahrefs)", "ahrefs_paid_spend_usd": "Paid search $ / month (Ahrefs)",
 }

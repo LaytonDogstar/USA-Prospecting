@@ -39,7 +39,7 @@ def _org_page(request: Request, db: Session, user, kind: str):
         cols = [("id", "id"), ("display_name", "name"), ("domain", "domain"), ("role_list", "types"),
                 ("parent_name", "owner group"), ("tier", "tier"), ("score", "buyer value" if kind == "lenders" else "supply value"),
                 ("lbs", "lead-buying strength"), ("sheet_score", "spreadsheet score"), ("loan_max", "max loan"),
-                ("states_n", "states"), ("complaints", "CFPB complaints 12m"), ("organic", "organic visits/mo"),
+                ("states_n", "states"), ("complaints", "complaints 12m (CFPB / ASIC IDR)"), ("organic", "organic visits/mo"),
                 ("paid", "paid search $/mo"), ("our_status", "our relationship"), ("compliance", "compliance status"),
                 ("flags", "compliance flags"), ("lifecycle", "lifecycle")]
         return _csv(rows, cols, kind)

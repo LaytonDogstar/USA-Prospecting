@@ -183,8 +183,8 @@ def fetch_latest(dest_dir: Path, http: httpx.Client | None = None) -> Path | Non
 
 
 def refresh(store: Store, raw_dir: Path | None = None) -> dict:
-    """The scheduled job: fetch this month's register if it is new, import it, then the partner check and a re-score
-    of Australian organisations."""
+    """The scheduled job: fetch this month's register and ASIC's complaints file if they are new, import them, then the
+    partner check and a re-score of Australian organisations."""
     from . import config
     from .jobs import job
     from .matching import possible_match_sweep
@@ -195,9 +195,126 @@ def refresh(store: Store, raw_dir: Path | None = None) -> dict:
         out = {"fetched": fetched.name if fetched else None, "files": {}}
         for p in sorted(raw_dir.glob("credit_lic_*.csv")):
             out["files"][p.name] = import_asic_licences(store, p)
+        try:  # complaints by firm (twice a year); a failure here doesn't undo the licence import
+            idr = fetch_idr(raw_dir)
+            out["fetched_idr"] = idr.name if idr else None
+        except Exception as e:
+            ctx.error(f"IDR complaints download failed: {e}")
+        for p in sorted(raw_dir.glob("idr_data_file_*.xlsx"))[-1:]:  # the newest covers every half-year
+            out["files"][p.name] = import_idr_complaints(store, p)
         au = set(store.s.scalars(select(m.Organisation.id).where(m.Organisation.market == "AU",
                                                                 m.Organisation.lifecycle != "merged")))
         out["possible_match_sweep"] = possible_match_sweep(store, only=au)
         out["rescore"] = rescore(store, org_ids=au, audit=False)
         ctx.run.args = {**ctx.run.args, "result": out}
     return out
+
+
+# ---------------------------------------------------------------- complaints (ASIC internal dispute resolution data)
+IDR_PAGE = "https://asic.gov.au/regulatory-resources/financial-services/dispute-resolution/internal-dispute-resolution-data-dashboard/"
+IDR_FILE_RE = re.compile(r"https://download\.asic\.gov\.au/files/idr/(idr_data_file_\d{8}\.xlsx)")
+IDR_METHOD = "import:asic-idr:v1"
+# product (Product Dimension, credit category) -> metric; the last 12 months = the two latest half-years in the file
+IDR_PRODUCTS = {
+    "Small amount credit contracts": "idr_complaints_sacc_12m",
+    "Personal loans": "idr_complaints_personal_loans_12m",
+    "Buy now, pay later": "idr_complaints_bnpl_12m",
+    "Buy now, pay later (Low cost credit contract)": "idr_complaints_bnpl_12m",
+    "Buy now, pay later (not Low cost credit contract)": "idr_complaints_bnpl_12m",
+    "Debt management/credit repair": "idr_complaints_debt_management_12m",
+    "Lines of credit/overdrafts": "idr_complaints_lines_of_credit_12m",
+}
+
+
+def _lic(v) -> str:
+    return str(v or "").strip().lstrip("0")
+
+
+def _int(v) -> int:
+    try:
+        return int(float(str(v).replace(",", "")))
+    except (TypeError, ValueError):
+        return 0
+
+
+def is_idr_file(path: Path) -> bool:
+    try:
+        import openpyxl
+        with open(path, "rb") as fh:
+            names = set(openpyxl.load_workbook(fh, read_only=True).sheetnames)
+        return {"Firm-level Metrics", "Product Dimension"} <= names
+    except Exception:
+        return False
+
+
+def import_idr_complaints(store: Store, path: Path) -> dict:
+    """Complaints each Australian lender received (all complaints, not only those escalated to AFCA), matched to
+    the ASIC licensees by credit licence number. Writes 12-month metrics with a claim per firm."""
+    import openpyxl
+    f = begin(store, path, "asic_idr")
+    if f is None:
+        return {"skipped": "already imported"}
+    s = store.s
+    by_lic = {_lic(num): oid for oid, num in s.execute(text(
+        "SELECT entity_id, value->>'number' FROM entity_current WHERE attribute = 'asic_credit_licence'"))}
+    with open(path, "rb") as fh:
+        wb = openpyxl.load_workbook(fh, read_only=True)
+        firm_rows = list(wb["Firm-level Metrics"].iter_rows(values_only=True))
+        head, firm_rows = [str(c) for c in firm_rows[0]], firm_rows[1:]
+        col = {n: i for i, n in enumerate(head)}
+        halves = sorted({str(r[col["Calendar Half Year"]]) for r in firm_rows if r[col["Calendar Half Year"]]})[-2:]
+        totals, first_row, names = {}, {}, {}
+        for i, r in enumerate(firm_rows, start=2):
+            lic = _lic(r[col["Credit Licence Number"]])
+            if not lic or lic not in by_lic or str(r[col["Calendar Half Year"]]) not in halves:
+                continue
+            totals[lic] = totals.get(lic, 0) + _int(r[col["Complaint Count"]])
+            first_row.setdefault(lic, i)
+            names[lic] = r[col["Firm Name"]]
+        prod = {}
+        rows = wb["Product Dimension"].iter_rows(values_only=True)
+        phead = {n: i for i, n in enumerate(str(c) for c in next(rows))}
+        for r in rows:
+            lic = _lic(r[phead["Credit Licence Number"]])
+            metric = IDR_PRODUCTS.get(r[phead["Product"]])
+            if not metric or lic not in totals or str(r[phead["Calendar Half Year"]]) not in halves:
+                continue
+            prod[(lic, metric)] = prod.get((lic, metric), 0) + _int(r[phead["Complaint Count"]])
+    period = f"{halves[0]} to {halves[-1]}" if halves else None
+    counts = {"firms_matched": 0, "half_years": halves, "metrics": 0}
+    for lic, total in totals.items():
+        oid = by_lic[lic]
+        src = store.row_source(f, "Firm-level Metrics", first_row[lic])
+        values = {"idr_complaints_12m": total,
+                  **{mt: n for (l2, mt), n in prod.items() if l2 == lic}}
+        for metric, v in values.items():
+            c = store.claim(oid, metric, v, src, confidence="high", method=IDR_METHOD)
+            store.metric(oid, metric, v, period, src, c)
+            counts["metrics"] += 1
+        counts["firms_matched"] += 1
+    f.row_counts = counts
+    return counts
+
+
+def fetch_idr(dest_dir: Path, http: httpx.Client | None = None) -> Path | None:
+    """The data file linked from ASIC's IDR dashboard page (updated twice a year). None when already downloaded."""
+    http = http or httpx.Client(timeout=300, follow_redirects=True)
+    page = http.get(IDR_PAGE).text
+    found = IDR_FILE_RE.search(page)
+    if not found:
+        raise RuntimeError("no IDR data file linked from ASIC's dashboard page")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    target = dest_dir / found.group(1)
+    if target.exists():
+        return None
+    tmp = target.with_suffix(".part")
+    with http.stream("GET", found.group(0)) as resp:
+        resp.raise_for_status()
+        with open(tmp, "wb") as out:
+            for chunk in resp.iter_bytes(1 << 20):
+                out.write(chunk)
+    if not is_idr_file(tmp):
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError("the downloaded file isn't ASIC's IDR data file")
+    tmp.rename(target)
+    return target

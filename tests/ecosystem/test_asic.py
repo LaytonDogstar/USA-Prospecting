@@ -81,3 +81,45 @@ def test_au_partner_gets_a_possible_match_never_a_merge(store, tmp_path):
     possible_match_sweep(store)
     item = store.s.scalar(select(m.ReviewItem).where(m.ReviewItem.kind == "possible_match"))
     assert item is not None and "Wren" in item.title
+
+
+def _idr(tmp_path):
+    import openpyxl
+    wb = openpyxl.Workbook()
+    wb.active.title = "How to interpret data"
+    head = ["Firm Name", "ACN", "ABN", "AFS Licence Number", "Credit Licence Number", "Calendar Half Year",
+            "Complaint Count"]
+    fl = wb.create_sheet("Firm-level Metrics")
+    fl.append(head)
+    for half, n in (("2025 HY1", 500), ("2025 HY2", 40), ("2026 HY1", 60)):
+        fl.append(["WREN CREDIT PTY LTD", "1", "1", None, "000900001", half, str(n)])
+    fl.append(["SOME INSURER LTD", "2", "2", "000123", None, "2026 HY1", "999"])     # no credit licence: ignored
+    pd = wb.create_sheet("Product Dimension")
+    pd.append(["Firm Name", "ACN", "ABN", "AFS Licence Number", "Credit Licence Number", "Calendar Half Year",
+               "Product Category", "Product Line", "Product", "Complaint Count"])
+    pd.append(["WREN CREDIT PTY LTD", "1", "1", None, "000900001", "2026 HY1", "Credit", "Consumer credit",
+               "Small amount credit contracts", "35"])
+    pd.append(["WREN CREDIT PTY LTD", "1", "1", None, "000900001", "2025 HY2", "Credit", "Consumer credit",
+               "Small amount credit contracts", "10"])
+    pd.append(["WREN CREDIT PTY LTD", "1", "1", None, "000900001", "2025 HY1", "Credit", "Consumer credit",
+               "Small amount credit contracts", "400"])   # older than 12 months
+    path = tmp_path / "idr_data_file_20991116.xlsx"
+    wb.save(path)
+    return path
+
+
+def test_idr_complaints_match_by_licence_number(store, tmp_path):
+    from ecosystem.asic import import_idr_complaints, is_idr_file
+    import_asic_licences(store, _file(tmp_path, "credit_lic_209901.csv",
+                                     [_row("900001", "WREN CREDIT PTY LTD", PROVIDER, bn="WREN CASH")]))
+    path = _idr(tmp_path)
+    assert is_idr_file(path)
+    out = import_idr_complaints(store, path)
+    assert out["firms_matched"] == 1 and out["half_years"] == ["2025 HY2", "2026 HY1"]
+    vals = dict(store.s.execute(text("SELECT metric, value FROM metric_snapshot")).all())
+    assert float(vals["idr_complaints_12m"]) == 100 and float(vals["idr_complaints_sacc_12m"]) == 45
+    from ecosystem.scoring import rescore
+    rescore(store, audit=False)
+    sc = store.s.scalar(select(m.Score).where(m.Score.score_type == "buyer_value"))
+    assert "ASIC IDR" in sc.components["components"]["size"]["raw"]
+    assert import_idr_complaints(store, path) == {"skipped": "already imported"}

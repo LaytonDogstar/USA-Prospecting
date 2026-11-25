@@ -55,7 +55,7 @@ def _load(db):
                coalesce((SELECT array_agg(DISTINCT state) FROM entity_state WHERE entity_id = o.id
                          AND basis IN ('lends','licensed')), '{}') AS states,
                bv.value AS buyer_value, sv.value AS supply_value,
-               (SELECT max(value) FROM metric_snapshot WHERE entity_id = o.id AND metric = 'cfpb_complaints_12m') AS complaints,
+               (SELECT max(value) FROM metric_snapshot WHERE entity_id = o.id AND metric IN ('cfpb_complaints_12m', 'idr_complaints_12m')) AS complaints,
                (SELECT max(value) FROM metric_snapshot WHERE entity_id = o.id AND metric = 'ahrefs_organic_visits') AS organic,
                ours.status AS our_status, ours.role AS our_role, ours.needs_confirmation,
                cs.value AS compliance,

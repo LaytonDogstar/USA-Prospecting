@@ -194,7 +194,8 @@ def buyer_components(org: m.Organisation, f: _Facts, tables: dict) -> dict:
     elif lb:
         c["lead_buying"] = _component(lb[0], lb[1], LEAD_BUYING_RESEARCH_METHOD, lb[2])
     sizes = []
-    for metric, label in (("cfpb_complaints_12m", "CFPB complaints 12m"), ("ahrefs_organic_visits", "organic visits/mo"),
+    for metric, label in (("cfpb_complaints_12m", "CFPB complaints 12m"),
+                          ("idr_complaints_12m", "complaints 12m (ASIC IDR data)"), ("ahrefs_organic_visits", "organic visits/mo"),
                           ("ahrefs_paid_spend_usd", "paid search $/mo")):
         if (org.id, metric) in f.metrics:
             v, cid = f.metrics[(org.id, metric)]
@@ -215,6 +216,31 @@ def buyer_components(org: m.Organisation, f: _Facts, tables: dict) -> dict:
                                            "Loan size vs our buyers: up to $1,000 = volume buyer (75), $1,000-5,000 = "
                                            "best fit (100), to $10k = 70, to $25k = 40, above = 20 (prime lending)",
                                            [cid for r in roles for cid in r.claim_ids])
+    elif (org.id, "idr_complaints_12m") in f.metrics:
+        # Australia, no loan sizes yet: the products its customers complain about show what it lends
+        mix = {k: f.metrics.get((org.id, f"idr_complaints_{k}_12m"), (0, None)) for k in
+               ("sacc", "personal_loans", "lines_of_credit", "bnpl", "debt_management")}
+        total = max(f.metrics[(org.id, "idr_complaints_12m")][0], 1)
+        share = lambda *ks: sum(mix[k][0] for k in ks) / total  # noqa: E731
+        if mix["sacc"][0] > 0:
+            fit, why = 100, "small amount credit contracts"
+        elif share("personal_loans", "lines_of_credit") >= 0.3:
+            fit, why = 70, f"mostly personal loans / lines of credit ({share('personal_loans', 'lines_of_credit'):.0%})"
+        elif share("debt_management") >= 0.3:
+            fit, why = 60, "debt management"
+        elif share("bnpl") >= 0.3:
+            fit, why = 45, "buy now, pay later"
+        elif share("personal_loans", "lines_of_credit") > 0:
+            fit, why = 30, f"some personal loans ({share('personal_loans', 'lines_of_credit'):.0%}), mostly other products"
+        else:
+            fit, why = 20, "no small-dollar products (cards, home or business lending)"
+        c["price_volume_fit"] = _component(fit, f"products complained about: {why}",
+                                           "Australia: product mix from ASIC complaints data, as a stand-in for loan "
+                                           "size: any small amount credit contracts = best fit (100); otherwise by "
+                                           "share of complaints: personal loans / lines of credit 30%+ = 70, debt "
+                                           "management 30%+ = 60, BNPL 30%+ = 45, some personal loans = 30, none = 20",
+                                           [cid for _, cid in mix.values() if cid] or
+                                           [f.metrics[(org.id, "idr_complaints_12m")][1]])
     if roles:
         best = max(roles, key=lambda r: tables["type_fit"].get(r.role, 0))
         c["type_fit"] = _component(tables["type_fit"].get(best.role, 0), best.role, "Best lender role", best.claim_ids)

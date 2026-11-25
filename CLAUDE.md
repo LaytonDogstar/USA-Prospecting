@@ -10,8 +10,9 @@ Two tools live here:
 - **`src/prospecting/`: the older SQLite tool.** It builds buyer profiles from pingtree exports and the 2026-09 targets workbook. It is kept working until the Ecosystem app covers it; its buyer profiles will feed buyer-value scoring. Don't extend it.
 
 Status: Phases 1–3 are done and deployed on Railway. Australia is being added as a second market (done: the market
-field and switch, per-market budgets and user access, the ASIC credit licence register; next: AFCA complaint data, AU
-research, AU contacts). Phase 4 (enrichment) is built: Ahrefs traffic and SERP jobs, the Anthropic research pass, and contacts (Hunter, `contacts.py`), run from Admin → Research & budgets once `AHREFS_API_KEY` / `ANTHROPIC_API_KEY` / `HUNTER_API_KEY` are set in Railway.
+field and switch, per-market budgets and user access, the ASIC credit licence register and ASIC complaints data; next:
+AU research, AU contacts). AFCA's own site blocks automated access (Cloudflare), so complaint volumes come from ASIC's
+internal dispute resolution (IDR) data file, which covers every complaint a firm receives and carries the licence number. Phase 4 (enrichment) is built: Ahrefs traffic and SERP jobs, the Anthropic research pass, and contacts (Hunter, `contacts.py`), run from Admin → Research & budgets once `AHREFS_API_KEY` / `ANTHROPIC_API_KEY` / `HUNTER_API_KEY` are set in Railway.
 
 ## Rules that matter
 
@@ -58,7 +59,11 @@ src/ecosystem/
                  credit / consumer leases (role lender_au_acl) or debt management (role debt_relief); brokers (credit
                  service only) are left out. Found again by licence number on later files; licences that leave the
                  register get a 'not on register' claim; suspended ones a compliance flag. refresh() = the monthly
-                 "asic_register" schedule (fetch + import + AU possible-match sweep + AU re-score); `asic-refresh` CLI
+                 "asic_register" schedule (fetch + import + AU possible-match sweep + AU re-score); `asic-refresh` CLI.
+                 Also ASIC's IDR complaints file (linked from its IDR dashboard page, twice a year): matched by credit
+                 licence number → metrics idr_complaints_12m and per product (sacc, personal_loans, bnpl,
+                 debt_management, lines_of_credit) for the two latest half-years. Scoring uses idr_complaints_12m for
+                 size and, with no loan sizes yet, the product mix as the Australian price/volume fit
   enrich.py      fill_traffic (Ahrefs metrics → accepted measurement claims + material-change review items),
                  serp_snapshot (tracked keywords → page entities with page traffic; unknown sites → new_entrant)
   research.py    research pass with Claude (web_search/web_fetch + strict record_findings tool). Findings must cite
