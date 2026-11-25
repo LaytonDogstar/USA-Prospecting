@@ -23,16 +23,27 @@ DEFAULT_KEYWORDS = [
     "cash advance online", "loans for bad credit guaranteed approval", "online loans no credit check",
     "same day loans", "emergency loans", "tribal loans",
 ]
+# Australia: small-amount and bad-credit borrowing as Australians search for it, plus the debt-help terms that bring
+# traffic to debt relief buyers. Searched on Google Australia (Ahrefs country "au").
+DEFAULT_KEYWORDS_AU = [
+    "payday loans", "cash loans", "small loans", "fast cash loans", "quick loans", "same day loans", "instant cash loans",
+    "short term loans", "emergency loans", "bad credit loans", "personal loans bad credit", "loans for bad credit",
+    "no credit check loans", "centrelink loans", "loans for people on centrelink", "loans for unemployed",
+    "medium amount loans", "2000 loan", "5000 loan bad credit", "online loans australia", "cash advance",
+    "pay advance app", "rent to own", "debt consolidation loans bad credit", "debt help",
+]
+SEED = {"US": DEFAULT_KEYWORDS, "AU": DEFAULT_KEYWORDS_AU}
 
 
-def seed_keywords(s, actor: str) -> int:
-    if s.scalar(select(m.TrackedKeyword.id).limit(1)):
+def seed_keywords(s, actor: str, market: str = "US") -> int:
+    """The starter list for a market, once (when that market has no keywords yet)."""
+    if s.scalar(select(m.TrackedKeyword.id).where(m.TrackedKeyword.market == market).limit(1)):
         return 0
-    for k in DEFAULT_KEYWORDS:
-        s.add(m.TrackedKeyword(keyword=k, state=None, active=True))
-    s.add(m.AuditLog(actor=actor, action="keywords.seed", after={"keywords": DEFAULT_KEYWORDS}))
+    for k in SEED[market]:
+        s.add(m.TrackedKeyword(keyword=k, state=None, active=True, market=market))
+    s.add(m.AuditLog(actor=actor, action="keywords.seed", after={"market": market, "keywords": SEED[market]}))
     s.flush()
-    return len(DEFAULT_KEYWORDS)
+    return len(SEED[market])
 
 
 def traffic_targets(s, limit: int, max_age_days: int = 30) -> list[tuple[int, str, str]]:
@@ -107,31 +118,39 @@ def fill_traffic(store: Store, limit: int = 50, client: AhrefsClient | None = No
 
 
 def serp_snapshot(store: Store, keywords: list[str] | None = None, top: int = 20, client: AhrefsClient | None = None,
-                  force: bool = False) -> dict:
-    """Who ranks for each tracked keyword, with page-level traffic (the basis for comparison-table sizing)."""
+                  force: bool = False, market: str = "US") -> dict:
+    """Who ranks for each tracked keyword of a market (Google US or Google Australia), with page-level traffic
+    (the basis for comparison-table sizing). New sites become records in that market and 'new entrant' cards."""
     s = store.s
     out = {"keywords": 0, "pages": 0, "new_domains": 0}
-    with job(s, "ahrefs_serp_snapshot", {"keywords": keywords, "top": top}, store.actor) as ctx:
-        seed_keywords(s, store.actor)
-        kws = keywords or [k.keyword for k in s.scalars(select(m.TrackedKeyword).where(m.TrackedKeyword.active))]
-        client = client or AhrefsClient(s, job_run_id=ctx.run.id)
-        client.job_run_id = ctx.run.id
+    job_name = "ahrefs_serp_snapshot" if market == "US" else f"ahrefs_serp_snapshot_{market.lower()}"
+    country = market.lower()
+    home_market, store.market = store.market, market
+    with job(s, job_name, {"keywords": keywords, "top": top, "market": market}, store.actor) as ctx:
+        seed_keywords(s, store.actor, market)
+        kws = keywords or [k.keyword for k in s.scalars(select(m.TrackedKeyword).where(
+            m.TrackedKeyword.active, m.TrackedKeyword.market == market))]
+        client = client or AhrefsClient(s, job_run_id=ctx.run.id, market=market)
+        client.job_run_id, client.market = ctx.run.id, market
         period = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         for kw in kws:
-            res = client.serp(kw, top=top, force=force)
+            res = client.serp(kw, country=country, top=top, force=force)
             out["keywords"] += 1
-            src = _ahrefs_source(store, f"https://app.ahrefs.com/keywords-explorer/google/us/overview?keyword={quote(kw)}",
-                                 f"Ahrefs SERP overview, '{kw}', US, {period}")
+            src = _ahrefs_source(store, f"https://app.ahrefs.com/keywords-explorer/google/{country}/overview?keyword={quote(kw)}",
+                                 f"Ahrefs SERP overview, '{kw}', {market}, {period}")
             for pos in res["positions"]:
                 host = norm_domain(pos.get("url"))
                 if not host or not pos.get("url"):
                     continue
                 owner = store.domain_owner(host)
+                if owner is not None and store.org(owner).market != market:
+                    owner = None  # a site known in the other market: this market gets its own record
                 if owner is None:
                     org, _ = store.resolve(host, [host], lifecycle="candidate")
                     store.add_domain(org.id, host, primary=True)
                     owner = org.id
-                    store.review("new_entrant", f"new_entrant:serp:{host}", f"New in search results: {host}",
+                    store.review("new_entrant", f"new_entrant:serp:{host}" + ("" if market == "US" else f":{market}"),
+                                 f"New in search results{'' if market == 'US' else ' (Australia)'}: {host}",
                                  [owner], {"reasons": [f"ranks #{pos.get('position')} for '{kw}'"], "url": pos["url"]})
                     out["new_domains"] += 1
                 d = s.scalar(select(m.Domain).where(m.Domain.hostname == host))
@@ -151,4 +170,5 @@ def serp_snapshot(store: Store, keywords: list[str] | None = None, top: int = 20
                 ctx.wrote()
                 out["pages"] += 1
         ctx.run.args = {**ctx.run.args, "result": out}
+    store.market = home_market
     return out

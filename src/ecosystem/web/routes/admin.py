@@ -314,7 +314,9 @@ def research_page(request: Request, db: Session = Depends(get_db), user=Depends(
     from ... import budget
     from ...research import DEFAULT_MODEL, PRICES
     runs = list(db.scalars(select(m.JobRun).order_by(m.JobRun.id.desc()).limit(25)))
-    kws = list(db.scalars(select(m.TrackedKeyword).order_by(m.TrackedKeyword.keyword)))
+    from ..deps import current_market as _cm
+    kws = list(db.scalars(select(m.TrackedKeyword).where(m.TrackedKeyword.market == _cm(request))
+                          .order_by(m.TrackedKeyword.keyword)))
     from ...research import pilot_targets
     from ..deps import current_market
     next_up = pilot_targets(db, 20, explain=True, market=current_market(request))
@@ -415,25 +417,27 @@ async def research_budget(request: Request, db: Session = Depends(get_db), user=
 def research_keywords(request: Request, action: str = Form(...), keyword: str = Form(""), kid: int = Form(0),
                       db: Session = Depends(get_db), user=Depends(admin_user)):
     from ...enrich import seed_keywords
+    from ..deps import current_market
+    mk = current_market(request)  # keywords belong to the market on screen
     if action == "seed":
-        n = seed_keywords(db, user.username)
-        flash(request, f"Added {n} starter keywords." if n else "Keywords already exist; nothing added.")
+        n = seed_keywords(db, user.username, mk)
+        flash(request, f"Added {n} starter keywords for {m.MARKETS[mk]}." if n else "Keywords already exist; nothing added.")
     elif action == "add" and keyword.strip():
         # one per line (commas also split), so a list can be pasted in one go
         wanted = list(dict.fromkeys(k.strip().lower()[:120] for k in re.split(r"[\n,]+", keyword) if k.strip()))[:200]
-        have = set(db.scalars(select(m.TrackedKeyword.keyword)))
+        have = set(db.scalars(select(m.TrackedKeyword.keyword).where(m.TrackedKeyword.market == mk)))
         new = [k for k in wanted if k not in have]
         for kw in new:
-            db.add(m.TrackedKeyword(keyword=kw, active=True))
+            db.add(m.TrackedKeyword(keyword=kw, active=True, market=mk))
         if new:
-            store_for(db, user).audit("keywords.add", "tracked_keyword", None, None, {"keywords": new})
+            store_for(db, user).audit("keywords.add", "tracked_keyword", None, None, {"keywords": new, "market": mk})
         dup = len(wanted) - len(new)
         flash(request, f"Added {len(new)} keyword{'s' if len(new) != 1 else ''}"
                        f"{f'; {dup} already tracked' if dup else ''}. A weekly snapshot costs about "
                        f"{300 * (len(have) + len(new)):,} Ahrefs units for all {len(have) + len(new)} keywords.")
     elif action in ("pause", "resume") and kid:
         k = db.get(m.TrackedKeyword, kid)
-        if k:
+        if k and k.market == mk:
             k.active = action == "resume"
             store_for(db, user).audit(f"keywords.{action}", "tracked_keyword", kid, None, {"keyword": k.keyword})
     return RedirectResponse("/admin/research#keywords", status_code=303)

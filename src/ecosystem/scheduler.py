@@ -29,6 +29,8 @@ DEFAULTS = {
     "research": ("Research the next companies (Claude)", 24, {"n": 40}, "ANTHROPIC_API_KEY"),
     "ahrefs_fill_traffic": ("Fill website traffic (Ahrefs)", 24, {"limit": 100}, "AHREFS_API_KEY"),
     "ahrefs_serp_snapshot": ("Search results snapshot for tracked keywords (Ahrefs)", 168, {}, "AHREFS_API_KEY"),
+    "ahrefs_serp_snapshot_au": ("Australia: search results snapshot, Google Australia (Ahrefs, Australian budget)", 168,
+                                {}, "AHREFS_API_KEY"),
     "upkeep": ("Upkeep: duplicate check, partner check, re-score (free)", 24, {}, None),
     "research_compare": ("Model test (one-off): research companies with Sonnet and Opus, graded blind", 720, {"n": 20},
                          "ANTHROPIC_API_KEY"),
@@ -117,6 +119,9 @@ def _run_job(s, job: str, actor: str, kwargs: dict) -> None:
         return
     if job == "research_compare":
         research.research_compare(Store(s, actor=actor), **kwargs)
+        return
+    if job == "ahrefs_serp_snapshot_au":
+        enrich.serp_snapshot(Store(s, actor=actor), market="AU", **kwargs)
         return
     if job == "research_au":
         research.research_batch(Store(s, actor=actor), market="AU", **kwargs)

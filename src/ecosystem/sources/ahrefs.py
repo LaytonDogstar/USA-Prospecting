@@ -23,8 +23,10 @@ class AhrefsError(Exception):
 
 
 class AhrefsClient:
-    def __init__(self, s, api_key: str | None = None, job_run_id: int | None = None, http: httpx.Client | None = None):
+    def __init__(self, s, api_key: str | None = None, job_run_id: int | None = None, http: httpx.Client | None = None,
+                 market: str = "US"):
         self.s = s
+        self.market = market  # whose Ahrefs budget the calls come out of
         self.key = api_key or os.environ.get("AHREFS_API_KEY")
         if not self.key:
             raise AhrefsError("AHREFS_API_KEY is not set")
@@ -38,7 +40,7 @@ class AhrefsClient:
             if hit is not None:
                 return hit, True
         if estimate_units:
-            budget.check(self.s, "ahrefs", estimate_units)
+            budget.check(self.s, "ahrefs", estimate_units, market=self.market)
         r = self.http.get(url, params=params, headers={"Authorization": f"Bearer {self.key}", "Accept": "application/json"})
         if r.status_code == 401 or r.status_code == 403:
             raise AhrefsError(f"Ahrefs refused the request ({r.status_code}): check the API key and plan")
@@ -46,7 +48,7 @@ class AhrefsClient:
             raise AhrefsError(f"Ahrefs error {r.status_code}: {r.text[:300]}")
         data = r.json()
         if estimate_units:
-            budget.record(self.s, "ahrefs", estimate_units, 0, self.job_run_id)
+            budget.record(self.s, "ahrefs", estimate_units, 0, self.job_run_id, market=self.market)
         cache.put(self.s, "ahrefs", url, params, r.status_code, data, CACHE_DAYS)
         return data, False
 

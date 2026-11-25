@@ -190,3 +190,28 @@ def test_core_name_matches_partner_with_loans_suffix(store, tmp_path):
     assert item is not None and any("apart from words like Loans" in r for r in item.payload["reasons"])
     from ecosystem.research import pilot_targets
     assert not pilot_targets(store.s, 10, market="AU")  # held back from research until a person decides
+
+
+def test_australian_keywords_and_search_snapshot(store):
+    from ecosystem import budget
+    from ecosystem.enrich import DEFAULT_KEYWORDS_AU, seed_keywords, serp_snapshot
+    assert seed_keywords(store.s, "test", "AU") == len(DEFAULT_KEYWORDS_AU) and seed_keywords(store.s, "test", "AU") == 0
+    assert seed_keywords(store.s, "test") > 0  # the US list is separate
+
+    class FakeAhrefs:
+        def __init__(self):
+            self.calls, self.market, self.job_run_id = [], None, None
+
+        def serp(self, kw, country="us", top=20, force=False):
+            self.calls.append((kw, country))
+            return {"positions": [{"url": "https://www.wombatloans.example.au/cash", "position": 1, "traffic": 900}]}
+
+    budget.set_limit(store.s, "ahrefs", 1000, "test", market="AU")
+    fake = FakeAhrefs()
+    out = serp_snapshot(store, keywords=["centrelink loans"], client=fake, market="AU")
+    assert fake.calls == [("centrelink loans", "au")] and fake.market == "AU" and out["new_domains"] == 1
+    org = store.s.scalar(select(m.Organisation).join(m.Domain, m.Domain.organisation_id == m.Organisation.id)
+                         .where(m.Domain.hostname == "wombatloans.example.au"))
+    assert org.market == "AU" and store.market == "US"
+    item = store.s.scalar(select(m.ReviewItem).where(m.ReviewItem.kind == "new_entrant"))
+    assert "Australia" in item.title
