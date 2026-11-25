@@ -316,7 +316,8 @@ def research_page(request: Request, db: Session = Depends(get_db), user=Depends(
     runs = list(db.scalars(select(m.JobRun).order_by(m.JobRun.id.desc()).limit(25)))
     kws = list(db.scalars(select(m.TrackedKeyword).order_by(m.TrackedKeyword.keyword)))
     from ...research import pilot_targets
-    next_up = pilot_targets(db, 20, explain=True)
+    from ..deps import current_market
+    next_up = pilot_targets(db, 20, explain=True, market=current_market(request))
     return render(request, "admin_research.html", user, section="research", budgets=budget.summary(db), runs=runs,
                   next_up=next_up,
                   keywords=kws, keys={"anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),

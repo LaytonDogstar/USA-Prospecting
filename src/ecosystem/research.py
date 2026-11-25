@@ -45,6 +45,20 @@ LENDER_CATEGORIES = {
     "not_a_lender": None, "unclear": None,
     "debt_relief": "debt_relief",  # not a lender, but a buyer of declined-loan traffic (offer walls)
 }
+# Australia: what an ASIC-licensed lender mainly offers (all lending ones keep the lender_au_acl role from the licence)
+AU_LENDER_CATEGORIES = {
+    "small_amount": "lender_au_acl",      # small amount credit contracts (up to $2,000)
+    "medium_amount": "lender_au_acl",     # medium amount credit contracts ($2,001-$5,000)
+    "personal_loans": "lender_au_acl",    # unsecured personal loans above $5,000 / lines of credit
+    "consumer_lease": "lender_au_acl",    # rent-to-own / consumer leases
+    "bnpl": "lender_au_acl",              # buy now, pay later / pay-on-demand
+    "wage_advance": "lender_au_acl",      # earned-wage / pay-advance apps
+    "car_or_asset_finance": "lender_au_acl",
+    "debt_relief": "debt_relief",         # debt management, debt agreements, credit repair, counselling
+    "bank_or_credit_union": None,
+    "not_a_lender": None,
+    "unclear": None,
+}
 
 ATTRIBUTES = {  # finding attribute -> what the researcher should report (also the claim attribute it becomes)
     "description": "One sentence: what the company does for US consumers.",
@@ -93,6 +107,30 @@ Rules:
   findings list."""
 
 
+AU_SYSTEM = SYSTEM.replace("You research US consumer lenders", "You research Australian consumer lenders").replace(
+    """Prefer the company's own website
+(rates and terms, licences, state list, privacy policy and "marketing partners" or consent pages), state
+regulators, the CFPB, the SEC, courts and reputable news.""",
+    """Prefer the company's own website
+(rates, fees and terms, its Australian credit licence number, privacy policy and any "marketing partners", referrer,
+affiliate or "who we share your information with" pages), ASIC (Professional Register, enforcement, banned lists),
+AFCA determinations, Moneysmart, ASX announcements for listed groups, courts and reputable Australian news.""").replace(
+    """- lender_category: tribal (tribally owned lender), state_licensed (licensed by the states it lends in),
+  bank_partner (loans originated by a partner bank), cab_cso (Texas/Ohio credit access business), servicer (services
+  loans for others), fintech_app (cash-advance or banking app, not a lender of instalment/payday loans),
+  bank_or_credit_union, debt_relief (debt settlement, debt relief or consolidation programmes, credit counselling:
+  not a lender, but it buys traffic from people declined for loans), not_a_lender (investor, debt buyer,
+  marketplace, collector), or unclear.""",
+    """- lender_category (what it mainly offers consumers): small_amount (small amount credit contracts, up to $2,000),
+  medium_amount (medium amount credit contracts, $2,001-$5,000), personal_loans (unsecured personal loans above
+  $5,000 or lines of credit), consumer_lease (rent-to-own / consumer leases), bnpl (buy now pay later), wage_advance
+  (pay-advance apps), car_or_asset_finance, debt_relief (debt management, debt agreements, credit repair,
+  counselling), bank_or_credit_union, not_a_lender (investor, debt buyer, collector, broker, marketplace), or unclear.
+- Australia has no state lending licences: report where it lends only if it says it excludes some states.
+- Loan amounts in Australian dollars, as stated.
+- is_us_consumer_lender: answer true when it lends to (or provides debt help for) Australian consumers; the field
+  name is shared with the US research.""")
+
 OWNERSHIP_SYSTEM = SYSTEM.replace(
     "Find facts about the one company you are given, using web search and web fetch.",
     """You are the ownership and partners investigator. For the one company you are given, establish who is behind
@@ -116,7 +154,7 @@ you saw on pages in this session, with the URL and a verbatim quote. If you coul
 in `answer` and leave source_url and quote empty. Where an answer is also a fact in the list, record it as a finding too."""
 
 
-def _record_tool(attributes: dict | None = None) -> dict:
+def _record_tool(attributes: dict | None = None, categories: dict | None = None) -> dict:
     return {
         "name": "record_findings",
         "description": "Record the verified findings for this company. Call exactly once, at the end.",
@@ -128,7 +166,7 @@ def _record_tool(attributes: dict | None = None) -> dict:
             "properties": {
                 "summary": {"type": "string", "description": "Two or three sentences on who this is."},
                 "is_us_consumer_lender": {"type": "boolean"},
-                "lender_category": {"type": "string", "enum": list(LENDER_CATEGORIES),
+                "lender_category": {"type": "string", "enum": list(categories or LENDER_CATEGORIES),
                                     "description": "The one category that best fits, judged from the pages you saw."},
                 "answers": {
                     "type": "array",
@@ -170,10 +208,17 @@ def _brief(s, org: m.Organisation, request: "m.ResearchRequest | None" = None) -
     domains = [d for d, in s.execute(select(m.Domain.hostname).where(m.Domain.organisation_id == org.id))]
     facts = s.execute(text("""SELECT attribute, value FROM entity_current WHERE entity_id = :id AND attribute = ANY(:a)"""),
                       {"id": org.id, "a": ["cfpb_complaints_12m", "cfpb_complaints_installment_12m",
-                                           "cfpb_complaints_payday_12m", "operator_group", "website"]}).all()
+                                           "cfpb_complaints_payday_12m", "operator_group", "website",
+                                           "asic_credit_licence", "hq_locality", "idr_complaints_12m",
+                                           "idr_complaints_sacc_12m", "idr_complaints_personal_loans_12m",
+                                           "idr_complaints_bnpl_12m", "idr_complaints_debt_management_12m"]}).all()
     wanted = "\n".join(f"- {k}: {v}" for k, v in _attributes(request).items())
     known = "\n".join(f"- {a}: {v}" for a, v in facts) or "- nothing else yet"
-    return (f"Company (name in the CFPB complaint database): {org.legal_name or org.display_name}\n"
+    where = ("name on ASIC's credit licence register" if org.market == "AU" else "name in the CFPB complaint database")
+    wanted_text = wanted if org.market != "AU" else "\n".join(
+        line for line in wanted.splitlines() if not line.startswith(("- tribe:", "- bank_partner_text:")))
+    wanted = wanted_text
+    return (f"Company ({where}): {org.legal_name or org.display_name}\n"
             f"Other names seen: {', '.join(n for n in names if n != org.display_name) or 'none'}\n"
             f"Known websites: {', '.join(domains) or 'none'}\nAlready known:\n{known}\n\n"
             f"Find as many of these as you can verify:\n{wanted}"
@@ -228,13 +273,14 @@ MAX_FAILED_DAYS = 2  # a company whose searches failed this many times in 14 day
 def research_org(store: Store, org: m.Organisation, client, model: str = DEFAULT_MODEL, job_run_id: int | None = None,
                  tools_variant: str = "dynamic", request: "m.ResearchRequest | None" = None) -> dict:
     """One research pass. Returns {'findings', 'rejected', 'summary', 'cost', ...}; writes nothing itself."""
-    budget.check(store.s, "anthropic", ESTIMATE_PER_ORG_USD)
+    market = org.market or "US"
+    budget.check(store.s, "anthropic", ESTIMATE_PER_ORG_USD, market=market)
     search_type, fetch_type = WEB_TOOLS[tools_variant]
     tools = [{"type": search_type, "name": "web_search", "max_uses": MAX_SEARCHES},
              {"type": fetch_type, "name": "web_fetch", "max_uses": MAX_FETCHES},
-             _record_tool(_attributes(request))]
+             _record_tool(_attributes(request), AU_LENDER_CATEGORIES if market == "AU" else None)]
     mode = request.mode if request is not None else "profile"
-    system = {"ownership": OWNERSHIP_SYSTEM, "people": PEOPLE_SYSTEM}.get(mode, SYSTEM) \
+    system = {"ownership": OWNERSHIP_SYSTEM, "people": PEOPLE_SYSTEM}.get(mode, AU_SYSTEM if market == "AU" else SYSTEM) \
         + (ANSWER_RULES if request is not None and request.questions else "")
     messages = [{"role": "user", "content": _brief(store.s, org, request)}]
     seen_urls: set[str] = set()
@@ -267,7 +313,7 @@ def research_org(store: Store, org: m.Organisation, client, model: str = DEFAULT
             break
         messages.append({"role": "user", "content": "Please call record_findings now with what you verified."})
         nudged = True
-    budget.record(store.s, "anthropic", 0, cost, job_run_id)
+    budget.record(store.s, "anthropic", 0, cost, job_run_id, market=market)
     if not seen_urls and tool_errors:  # every search failed: an error, not "nothing found" (no card; retried later)
         raise SearchFailed(f"web search failed ({', '.join(sorted(set(tool_errors)))}); cost ${cost:.3f}")
     if result is None:
@@ -406,7 +452,63 @@ TARGET_SIGNALS_SQL = """
   EXISTS (SELECT 1 FROM score sc WHERE sc.entity_id = o.id AND sc.score_type = 'lbs_index') AS on_lbs_index"""
 
 
-def pilot_targets(s, n: int, explain: bool = False) -> list:
+AU_TARGET_SQL = """
+    SELECT * FROM (
+    SELECT o.id,
+           coalesce((SELECT (value #>> '{}')::numeric FROM entity_current WHERE entity_id = o.id
+                     AND attribute = 'idr_complaints_sacc_12m'), 0) AS sacc,
+           coalesce((SELECT (value #>> '{}')::numeric FROM entity_current WHERE entity_id = o.id
+                     AND attribute = 'idr_complaints_personal_loans_12m'), 0) AS personal,
+           coalesce((SELECT (value #>> '{}')::numeric FROM entity_current WHERE entity_id = o.id
+                     AND attribute = 'idr_complaints_debt_management_12m'), 0) AS debt,
+           coalesce((SELECT (value #>> '{}')::numeric FROM entity_current WHERE entity_id = o.id
+                     AND attribute = 'idr_complaints_12m'), 0) AS total,
+           (coalesce(o.legal_name, o.display_name) ~* :deprioritise) AS unlikely_name
+    FROM organisation o
+    LEFT JOIN compliance_status cs ON cs.entity_id = o.id
+    WHERE o.market = 'AU' AND o.lifecycle IN ('active', 'candidate') AND cs.value IS DISTINCT FROM 'blocked'
+      AND EXISTS (SELECT 1 FROM org_role r WHERE r.organisation_id = o.id AND r.role IN ('lender_au_acl', 'debt_relief'))
+      AND NOT EXISTS (SELECT 1 FROM our_relationship r WHERE r.organisation_id = o.id)
+      AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.status = 'open' AND ri.kind = 'possible_match'
+                      AND o.id = ANY(ri.entity_ids))
+      AND (SELECT count(*) FROM job_run jr, jsonb_array_elements(jr.errors) e
+           WHERE jr.job IN ('research', 'research_au') AND jr.started_at > now() - interval '14 days'
+             AND (e->>'org_id')::bigint = o.id AND e->>'message' LIKE '%web search failed%') < :max_failed
+      AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.kind = 'research' AND o.id = ANY(ri.entity_ids)
+                      AND NOT (ri.status = 'rejected' AND coalesce(ri.payload->'counts', '{}'::jsonb) = '{}'::jsonb))
+    ) t
+    ORDER BY (sacc > 0) DESC, sacc DESC,
+             (total > 0 AND (personal + debt) / greatest(total, 1) >= 0.3) DESC, (personal + debt) DESC,
+             total DESC, id
+    LIMIT :pool"""
+
+
+def au_targets(s, n: int, explain: bool = False) -> list:
+    """Australia: unresearched licensed lenders most likely to buy our leads: complaints about small amount credit
+    contracts first (the Australian payday product), then lenders whose complaints are mostly personal loans or debt
+    management, then the rest by complaint volume. Partners, possible partners and bank-like names (unless they have
+    small-amount complaints) are left out."""
+    if n <= 0:
+        return []
+    rows = s.execute(text(AU_TARGET_SQL), {"pool": n * 5 + 50, "max_failed": MAX_FAILED_DAYS,
+                                           "deprioritise": TARGET_DEPRIORITISE}).mappings().all()
+    picked = []
+    for r in rows:
+        if r["unlikely_name"] and not r["sacc"]:
+            continue
+        why = (f"{int(r['sacc'])} small-amount credit complaints" if r["sacc"] else
+               "mostly personal-loan / debt-management complaints" if r["total"] and (r["personal"] + r["debt"]) / r["total"] >= 0.3
+               else f"{int(r['total'])} complaints" if r["total"] else "licensed credit provider, no complaints data")
+        picked.append((r["id"], why))
+        if len(picked) >= n:
+            break
+    out = [(s.get(m.Organisation, i), why) for i, why in picked]
+    return out if explain else [o for o, _ in out]
+
+
+def pilot_targets(s, n: int, explain: bool = False, market: str = "US") -> list:
+    if market == "AU":
+        return au_targets(s, n, explain)
     """Unresearched companies most likely to be lenders that buy our leads, strongest evidence first:
     1. already seen buying (named on a lead source's partner list) or tribal (online small-dollar lenders);
     2. ranking in Google for our tracked keywords (most keywords first);
@@ -471,21 +573,25 @@ def pilot_targets(s, n: int, explain: bool = False) -> list:
     return out if explain else [o for o, _ in out]
 
 
-def research_batch(store: Store, n: int = 20, client=None, model: str = DEFAULT_MODEL, org_ids: list[int] | None = None) -> dict:
+def research_batch(store: Store, n: int = 20, client=None, model: str = DEFAULT_MODEL, org_ids: list[int] | None = None,
+                   market: str = "US") -> dict:
     s = store.s
     out = {"organisations": 0, "facts_proposed": 0, "rejected_uncited": 0, "cost_usd": 0.0, "errors": 0}
-    with job(s, "research", {"n": n, "model": model, "org_ids": org_ids}, store.actor) as ctx:
+    job_name = "research" if market == "US" else f"research_{market.lower()}"
+    with job(s, job_name, {"n": n, "model": model, "org_ids": org_ids, "market": market}, store.actor) as ctx:
         if client is None:
             import anthropic
             client = anthropic.Anthropic()
         if org_ids:
             tasks = [(s.get(m.Organisation, i), None) for i in org_ids]
         else:  # questions sent back by the manager or a person come first, then new companies
-            queued = list(s.scalars(select(m.ResearchRequest).where(m.ResearchRequest.status == "queued")
-                                    .order_by(m.ResearchRequest.id).limit(n)))
+            queued = list(s.scalars(select(m.ResearchRequest).join(
+                m.Organisation, m.Organisation.id == m.ResearchRequest.organisation_id).where(
+                m.ResearchRequest.status == "queued", m.Organisation.market == market)
+                .order_by(m.ResearchRequest.id).limit(n)))
             tasks = [(store.org(r.organisation_id), r) for r in queued]
             busy = {o.id for o, _ in tasks}
-            picks = pilot_targets(s, n - len(tasks), explain=True) if len(tasks) < n else []
+            picks = pilot_targets(s, n - len(tasks), explain=True, market=market) if len(tasks) < n else []
             tasks += [(o, None) for o, _ in picks if o.id not in busy]
             out["why"] = {}
             for _, why in picks:
@@ -591,7 +697,8 @@ def apply_research(store: Store, item: m.ReviewItem) -> int:
                         store.claim(org.id, "declared_domain", d, src, confidence=c.confidence, method=c.method)
         elif c.attribute == "lender_type_text":
             cat = item.payload.get("lender_category")
-            found = ({LENDER_CATEGORIES[cat]} - {None}) if cat in LENDER_CATEGORIES else roles_from_text(val)
+            cats = AU_LENDER_CATEGORIES if org.market == "AU" else LENDER_CATEGORIES
+            found = ({cats[cat]} - {None}) if cat in cats else (set() if org.market == "AU" else roles_from_text(val))
             roles |= found
             for role in found:
                 store.role(org.id, role, c)
@@ -616,6 +723,11 @@ def apply_research(store: Store, item: m.ReviewItem) -> int:
     cat = item.payload.get("lender_category")
     if cat == "debt_relief" and "debt_relief" not in roles and claims:  # a buyer even without a lender-type fact
         store.role(org.id, "debt_relief", next((c for c in claims if c.attribute == "description"), claims[0]))
+    if org.market == "AU" and cat in AU_LENDER_CATEGORIES and cat != "unclear" and claims:
+        # what it mainly offers drives the Australian type fit (all ASIC credit providers share one role)
+        basis = next((c for c in claims if c.attribute == "lender_type_text"), claims[0])
+        store.claim(org.id, "au_lender_category", cat, store.s.get(m.Source, basis.source_id),
+                    confidence=basis.confidence, method=basis.method)
     if lo is not None or hi is not None:
         for r in store.s.scalars(select(m.OrgRole).where(m.OrgRole.organisation_id == org.id)):
             r.loan_min, r.loan_max = r.loan_min or lo, r.loan_max or hi

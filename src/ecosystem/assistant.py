@@ -43,7 +43,7 @@ CHOICES = {  # what the model may answer → (needs a pair, meaning shown to the
                            "servicer, or likely the same team): close the card and keep it held back from prospecting"),
     "not_related": (True, "Not the same company and not owner/brand: clear the flag"),
     "accept": (False, "Accept the research facts / approve the item"),
-    "screen_out": (False, "Accept the research facts and screen it out: not a US consumer lender"),
+    "screen_out": (False, "Accept the research facts and screen it out: not a consumer lender in its market"),
     "reject": (False, "Reject the research facts / the item is wrong"),
     "ask_research": (False, "Send it back to the researchers with specific questions (fill in questions, investigate, mode)"),
     "unsure": (False, "Not enough evidence on the card: a person should look"),
@@ -64,7 +64,8 @@ What the decisions mean:
   servicer, is "related_hold" (stays held back), not "not_related".
 - Duplicates: two records that may be the same company.
 - Research: facts a researcher found, each with a quote and the page it came from. Accept when the quotes support
-  the values; screen out when it is clearly not a US consumer lender (an app, a bank, a marketplace); debt relief, debt
+  the values; screen out when it is clearly not a consumer lender in its market (US, or Australia for Australian cards: an app,
+  a bank, a marketplace); debt relief, debt
   settlement and credit-counselling companies are buyers for us (they buy declined-loan traffic on offer walls), so
   accept them, never screen them out; reject when
   the facts look wrong or belong to a different company.
@@ -122,7 +123,9 @@ def _side(s, row, label: str) -> str:
 def card_text(s, it: m.ReviewItem, summ: dict) -> str:
     ids = list(it.entity_ids)
     p = it.payload or {}
-    parts = [f"Kind: {it.kind}", f"Title: {it.title}"]
+    markets = sorted({o.market for o in (s.get(m.Organisation, i) for i in ids) if o is not None})
+    parts = [f"Kind: {it.kind}", f"Title: {it.title}",
+             f"Market: {' / '.join(m.MARKETS.get(x, x) for x in markets) or 'United States'}"]
     for k in ("reasons", "text", "field", "evidence", "evidence_source", "summary", "lender_category",
               "is_us_consumer_lender", "strength"):
         if p.get(k) not in (None, "", []):
@@ -201,7 +204,9 @@ def recommend(store: Store, it: m.ReviewItem, summ: dict, client, run_id: int | 
     key = _key(card)
     if (it.payload or {}).get("assistant", {}).get("key") == key:
         return None
-    budget.check(s, "anthropic", ESTIMATE_PER_CARD_USD)
+    # charged to the card's market (Australian cards come out of the Australian budget)
+    market = next((o.market for o in (s.get(m.Organisation, i) for i in it.entity_ids) if o is not None), "US")
+    budget.check(s, "anthropic", ESTIMATE_PER_CARD_USD, market=market)
     allowed = allowed_choices(it, can_send_back(s, it))
     options = "\n".join(f"- {c}: {CHOICES[c][1]}" for c in CHOICES if c in allowed)
     resp = client.beta.messages.create(
@@ -211,7 +216,7 @@ def recommend(store: Store, it: m.ReviewItem, summ: dict, client, run_id: int | 
         output_config={"effort": "medium", "format": {"type": "json_schema", "schema": SCHEMA}},
         betas=[FALLBACK_BETA], fallbacks="default")
     cost = _cost(MODEL, resp.usage)
-    budget.record(s, "anthropic", 0, cost, run_id)
+    budget.record(s, "anthropic", 0, cost, run_id, market=market)
     if resp.stop_reason == "refusal":
         return {"cost": cost, "error": "declined"}
     out = json.loads(next(b.text for b in resp.content if getattr(b, "type", "") == "text"))

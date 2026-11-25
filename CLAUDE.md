@@ -10,8 +10,8 @@ Two tools live here:
 - **`src/prospecting/`: the older SQLite tool.** It builds buyer profiles from pingtree exports and the 2026-09 targets workbook. It is kept working until the Ecosystem app covers it; its buyer profiles will feed buyer-value scoring. Don't extend it.
 
 Status: Phases 1–3 are done and deployed on Railway. Australia is being added as a second market (done: the market
-field and switch, per-market budgets and user access, the ASIC credit licence register and ASIC complaints data; next:
-AU research, AU contacts). AFCA's own site blocks automated access (Cloudflare), so complaint volumes come from ASIC's
+field and switch, per-market budgets and user access, the ASIC credit licence register and ASIC complaints data, AU research; next:
+AU search keywords (Ahrefs country AU), AU contacts). AFCA's own site blocks automated access (Cloudflare), so complaint volumes come from ASIC's
 internal dispute resolution (IDR) data file, which covers every complaint a firm receives and carries the licence number. Phase 4 (enrichment) is built: Ahrefs traffic and SERP jobs, the Anthropic research pass, and contacts (Hunter, `contacts.py`), run from Admin → Research & budgets once `AHREFS_API_KEY` / `ANTHROPIC_API_KEY` / `HUNTER_API_KEY` are set in Railway.
 
 ## Rules that matter
@@ -121,8 +121,12 @@ cross-market merge; dedup suggestions stay inside a market; `Store(market=...)` 
 market). The possible-match sweep compares across markets only on an exact name or website, so a partner in one market
 holds back the same group in the other. The header switch (`POST /market`, session) filters Home, Lenders, Supply,
 People, Review, Map and Leverage; States is US only. Seed files take an optional `market` column; an all-AU seed is
-stored as `our_relationships_seed_au.csv`. Research, contacts and Ahrefs traffic jobs are US-only until their AU
-versions are built. Budgets are per provider and market (`provider_budget` keyed by provider + market, `api_usage.market`;
+stored as `our_relationships_seed_au.csv`. Contacts and Ahrefs traffic jobs are US-only until their AU versions
+are built. Australian research is its own schedule ("research_au", `research_batch(market="AU")`): AU prompt
+(`research.AU_SYSTEM`, categories `AU_LENDER_CATEGORIES`: small/medium amount, personal loans, consumer lease, BNPL,
+wage advance, car/asset finance, debt relief, bank), targets from `au_targets` (small amount credit complaints first),
+spending from the AU budget; an accepted card writes `au_lender_category`, which sets the AU type fit
+(`scoring.AU_TYPE_FIT`). The assistant charges each card to its market and sees the card's market. Budgets are per provider and market (`provider_budget` keyed by provider + market, `api_usage.market`;
 `budget.check/record(..., market=)`; a market without a saved budget gets 0, so nothing is spent there until an admin
 sets it). Users see only their markets (`app_user.markets`, set under Admin → Users): the switch, lists, organisation
 pages, review decisions and person edits outside them are refused (`deps.require_market`, 404).

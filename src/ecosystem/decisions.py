@@ -15,7 +15,10 @@ from .normalise import contains_name, name_similarity, norm_name
 from .store import Store
 
 NON_LENDER_CATEGORIES = {"fintech_app", "bank_or_credit_union", "not_a_lender"}
-LENDER_CATEGORIES = {"tribal", "state_licensed", "bank_partner", "cab_cso", "servicer", "debt_relief"}  # buyers
+LENDER_CATEGORIES = {"tribal", "state_licensed", "bank_partner", "cab_cso", "servicer", "debt_relief",  # buyers
+                     # Australia
+                     "small_amount", "medium_amount", "personal_loans", "consumer_lease", "bnpl", "wage_advance",
+                     "car_or_asset_finance"}
 
 
 class DecisionError(ValueError):
@@ -26,7 +29,7 @@ def summaries(s, ids: set[int]) -> dict:
     if not ids:
         return {}
     rows = s.execute(text("""
-        SELECT o.id, o.display_name, o.lifecycle, o.kind, o.merged_into_id, p.display_name AS parent,
+        SELECT o.id, o.display_name, o.lifecycle, o.kind, o.merged_into_id, o.market, p.display_name AS parent,
                (SELECT string_agg(hostname, ', ' ORDER BY hostname) FROM domain d WHERE d.organisation_id = o.id) AS domains,
                (SELECT string_agg(DISTINCT role, ', ') FROM org_role r WHERE r.organisation_id = o.id) AS roles,
                ours.status AS our_status, ours.role AS our_role,
@@ -113,7 +116,7 @@ def suggest(store: Store, it: m.ReviewItem, summ: dict) -> dict | None:
         if cat in NON_LENDER_CATEGORIES or (it.payload.get("is_us_consumer_lender") is False
                                             and cat not in LENDER_CATEGORIES and cat != "unclear"):
             return {"action": "screen", "label": "Accept and screen out",
-                    "why": f"research says it isn't a US consumer lender ({(cat or 'not a lender').replace('_', ' ')}), "
+                    "why": f"research says it isn't a consumer lender in its market ({(cat or 'not a lender').replace('_', ' ')}), "
                            f"with {facts} cited fact{'s' if facts != 1 else ''}",
                     "safe": facts >= 2 and not it.payload.get("rejected_uncited")}
         if cat in LENDER_CATEGORIES and facts >= 2 and not it.payload.get("rejected_uncited"):

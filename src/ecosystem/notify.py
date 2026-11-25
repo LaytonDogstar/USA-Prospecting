@@ -18,7 +18,7 @@ CATEGORIES = ("review", "job", "budget", "daily_review")
 JOB_LABELS = {"research": "Research", "ahrefs_fill_traffic": "Ahrefs traffic", "ahrefs_serp_snapshot": "Search snapshot",
               "upkeep": "Upkeep", "assistant": "Assistant",
               "research_compare": "Model test", "contacts": "Contacts",
-              "asic_register": "ASIC register"}
+              "asic_register": "ASIC register", "research_au": "Australian research"}
 
 
 def add(s, category: str, level: str, title: str, body: str | None = None, link: str | None = None,

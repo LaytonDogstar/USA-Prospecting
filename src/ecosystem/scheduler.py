@@ -32,7 +32,9 @@ DEFAULTS = {
     "upkeep": ("Upkeep: duplicate check, partner check, re-score (free)", 24, {}, None),
     "research_compare": ("Model test (one-off): research companies with Sonnet and Opus, graded blind", 720, {"n": 20},
                          "ANTHROPIC_API_KEY"),
-    "asic_register": ("Australia: ASIC credit licence register, monthly (free)", 720, {}, None),
+    "asic_register": ("Australia: ASIC credit licence register and complaints data, monthly (free)", 720, {}, None),
+    "research_au": ("Australia: research the next companies (Claude, Australian budget)", 24, {"n": 10},
+                    "ANTHROPIC_API_KEY"),
     "contacts": ("Find decision-makers' work emails for the best prospects (Hunter)", 168, {"limit": 10},
                  "HUNTER_API_KEY"),
     # last, so it runs after the jobs above when they are due together
@@ -115,6 +117,9 @@ def _run_job(s, job: str, actor: str, kwargs: dict) -> None:
         return
     if job == "research_compare":
         research.research_compare(Store(s, actor=actor), **kwargs)
+        return
+    if job == "research_au":
+        research.research_batch(Store(s, actor=actor), market="AU", **kwargs)
         return
     if job == "asic_register":
         from .asic import refresh

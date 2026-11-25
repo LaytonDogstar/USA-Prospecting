@@ -123,3 +123,54 @@ def test_idr_complaints_match_by_licence_number(store, tmp_path):
     sc = store.s.scalar(select(m.Score).where(m.Score.score_type == "buyer_value"))
     assert "ASIC IDR" in sc.components["components"]["size"]["raw"]
     assert import_idr_complaints(store, path) == {"skipped": "already imported"}
+
+
+def test_australian_research_targets_prompt_budget_and_scoring(store, tmp_path):
+    from types import SimpleNamespace as NS
+    from ecosystem import budget
+    from ecosystem.asic import import_idr_complaints
+    from ecosystem.decisions import decide, suggest
+    from ecosystem.research import pilot_targets, research_batch
+    from ecosystem.scoring import rescore
+    import_asic_licences(store, _file(tmp_path, "credit_lic_209901.csv", [
+        _row("900001", "WREN CREDIT PTY LTD", PROVIDER, bn="WREN CASH"),
+        _row("900005", "EXAMPLE SAVINGS BANK LIMITED", PROVIDER)]))
+    import_idr_complaints(store, _idr(tmp_path))
+    wren = store.s.scalar(select(m.Organisation).where(m.Organisation.legal_name == "WREN CREDIT PTY LTD"))
+    picked = pilot_targets(store.s, 10, explain=True, market="AU")
+    assert [o.id for o, _ in picked] == [wren.id] and "small-amount" in picked[0][1]  # the bank is left out
+    assert wren.id not in {o.id for o in pilot_targets(store.s, 50)}  # never in the US queue
+
+    seen = {}
+
+    def create(**kw):
+        seen.update(kw)
+        page = NS(type="web_fetch_tool_result", model_dump=lambda: {"type": "web_fetch_tool_result",
+                  "content": {"type": "web_fetch_result", "url": "https://www.wrencash.example.au/rates"}})
+        rec = NS(type="tool_use", name="record_findings", id="t", input={
+            "summary": "Wren Cash offers small amount credit contracts.", "is_us_consumer_lender": True,
+            "lender_category": "small_amount", "answers": [],
+            "findings": [{"attribute": f, "value": v, "source_url": "https://www.wrencash.example.au/rates", "quote": v,
+                          "confidence": "high"} for f, v in (("lender_type_text", "small amount credit contracts"),
+                                                             ("loan_range_text", "$200 - $2,000"))]})
+        return NS(content=[page, rec], stop_reason="tool_use",
+                  usage=NS(input_tokens=1000, output_tokens=100, cache_creation_input_tokens=0,
+                           cache_read_input_tokens=0, server_tool_use=None))
+    client = NS(beta=NS(messages=NS(create=create)))
+    out = research_batch(store, n=5, client=client, market="AU")
+    assert out["organisations"] == 0  # no Australian budget yet: nothing spent
+    budget.set_limit(store.s, "anthropic", 5, "test", market="AU")
+    out = research_batch(store, n=5, client=client, market="AU")
+    assert out["organisations"] == 1
+    assert "Australian consumer lenders" in seen["system"] and "ASIC" in seen["system"]
+    enum = seen["tools"][-1]["input_schema"]["properties"]["lender_category"]["enum"]
+    assert "small_amount" in enum and "tribal" not in enum
+    assert budget.used(store.s, "anthropic", "AU") > 0 and budget.used(store.s, "anthropic") == 0
+    it = store.s.scalar(select(m.ReviewItem).where(m.ReviewItem.kind == "research"))
+    sug = suggest(store, it, {})
+    assert sug["action"] == "approve" and sug["safe"]
+    decide(store, it, "approve", "test")
+    rescore(store, audit=False)
+    sc = store.s.scalar(select(m.Score).where(m.Score.entity_id == wren.id, m.Score.score_type == "buyer_value")
+                        .order_by(m.Score.id.desc()))
+    assert sc.components["components"]["type_fit"]["score"] == 100

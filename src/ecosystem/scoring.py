@@ -110,7 +110,8 @@ class _Facts:
             self.lbs[e] = (float(v), comps)
         self.current = defaultdict(dict)  # entity -> attribute -> (value, claim_id)
         wanted = ("priority", "how_to_work_with", "segment_text", "loan_max", "loan_min", "sheet_fit",
-                  "lead_buying_evidence", "partner_list_url", "affiliate_programme", "appears_on_partner_lists")
+                  "lead_buying_evidence", "partner_list_url", "affiliate_programme", "appears_on_partner_lists",
+                  "au_lender_category")
         for e, attr, v, cid in s.execute(text_current(wanted)):
             self.current[e][attr] = (v, cid)
         self.children = defaultdict(int)
@@ -120,6 +121,10 @@ class _Facts:
         self.top = defaultdict(float)
         for (e, metric), (v, _) in self.metrics.items():
             self.top[metric] = max(self.top[metric], v)
+
+
+AU_TYPE_FIT = {"small_amount": 100, "medium_amount": 90, "personal_loans": 70, "consumer_lease": 60, "wage_advance": 55,
+               "bnpl": 50, "debt_relief": 45, "car_or_asset_finance": 20, "bank_or_credit_union": 10, "not_a_lender": 0}
 
 
 def text_current(attrs):
@@ -241,7 +246,14 @@ def buyer_components(org: m.Organisation, f: _Facts, tables: dict) -> dict:
                                            "management 30%+ = 60, BNPL 30%+ = 45, some personal loans = 30, none = 20",
                                            [cid for _, cid in mix.values() if cid] or
                                            [f.metrics[(org.id, "idr_complaints_12m")][1]])
-    if roles:
+    au_cat = f.current[org.id].get("au_lender_category")
+    if au_cat and _text(au_cat[0]) in AU_TYPE_FIT:
+        cat = _text(au_cat[0])
+        c["type_fit"] = _component(AU_TYPE_FIT[cat], cat.replace("_", " "),
+                                   "Australia, what it mainly offers (research): small amount credit 100, medium amount "
+                                   "90, personal loans 70, consumer leases 60, wage advance 55, BNPL 50, debt relief 45, "
+                                   "car / asset finance 20, bank or credit union 10", [au_cat[1]])
+    elif roles:
         best = max(roles, key=lambda r: tables["type_fit"].get(r.role, 0))
         c["type_fit"] = _component(tables["type_fit"].get(best.role, 0), best.role, "Best lender role", best.claim_ids)
     seg = next((r.segment for r in roles if r.segment), None)
