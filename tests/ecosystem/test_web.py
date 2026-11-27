@@ -466,3 +466,22 @@ def test_reviewer_decides_with_a_reason_and_admin_sees_the_log(web, session):
     page = web.get("/admin/decisions?who=kabo").text
     assert "different company, checked website" in page and "(reviewer)" in page
     assert "different company" in web.get("/admin/decisions?format=csv").text
+
+
+def test_research_tab_renders_not_a_lender_cards_in_both_markets(web, session):
+    st = Store(session, "test")
+    org = st.new_org("Plover Collections")
+    st.market = "AU"
+    au = st.new_org("Quokka Recoveries")
+    session.flush()
+    for o in (org, au):
+        st.review("research", f"research:{o.id}:1", f"Research found 2 facts: {o.display_name}", [o.id],
+                  {"run": 1, "counts": {"description": 2}, "lender_category": "not_a_lender",
+                   "is_us_consumer_lender": False, "summary": "A debt collector."})
+    session.commit()
+    login(web)
+    r = web.get("/review?kind=research")
+    assert r.status_code == 200 and "not a consumer lender in the US" in r.text
+    web.post("/market", data={"market": "AU", "back": "/", "csrf": csrf(web)})
+    r = web.get("/review?kind=research")
+    assert r.status_code == 200 and "not a consumer lender in Australia" in r.text
