@@ -432,3 +432,37 @@ def test_researched_filter_and_ask_about_an_org(web, session):
     assert r.status_code == 303
     req = session.scalar(select(m.ResearchRequest).where(m.ResearchRequest.organisation_id == oid))
     assert req and req.review_item_id is None and req.status == "queued"
+
+
+def test_reviewer_decides_with_a_reason_and_admin_sees_the_log(web, session):
+    from ecosystem.auth import create_user
+    u = create_user(session, "kabo", "reviewer-password-1", "reviewer")
+    u.markets = ["US"]
+    session.commit()
+    it = session.scalar(select(m.ReviewItem).where(m.ReviewItem.status == "open", m.ReviewItem.kind == "possible_match"))
+    login(web, "kabo", "reviewer-password-1")
+    for path in ("/review", "/report", "/notifications", "/guide"):
+        assert web.get(path).status_code == 200, path
+    for path in ("/admin/research", "/admin/users", "/admin/decisions", "/api/status"):
+        assert web.get(path).status_code == 403, path
+    home = web.get("/").text
+    assert 'href="/review"' in home and 'href="/admin/weights"' not in home and "(reviewer)" in home
+    # a decision needs a reason
+    r = web.post(f"/review/{it.id}/decide", data={"action": "reject", "note": "", "csrf": csrf(web, "/review")},
+                 follow_redirects=True)
+    assert "add a short reason" in r.text
+    session.expire_all()
+    assert session.get(m.ReviewItem, it.id).status == "open"
+    web.post(f"/review/{it.id}/decide", data={"action": "reject", "note": "different company, checked website",
+                                             "csrf": csrf(web, "/review")})
+    session.expire_all()
+    assert session.get(m.ReviewItem, it.id).decided_by == "kabo"
+    # reviewers can't edit organisations
+    oid = it.entity_ids[0]
+    assert web.post(f"/org/{oid}/compliance", data={"value": "blocked", "note": "x", "csrf": csrf(web)}).status_code == 403
+    # the admin's log
+    web.post("/logout", data={"csrf": csrf(web)})
+    login(web)
+    page = web.get("/admin/decisions?who=kabo").text
+    assert "different company, checked website" in page and "(reviewer)" in page
+    assert "different company" in web.get("/admin/decisions?format=csv").text

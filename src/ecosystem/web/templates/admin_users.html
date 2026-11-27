@@ -19,8 +19,9 @@
         <form method="post" action="/admin/users/{{ u.id }}" class="inline">{{ csrf_field(csrf) }}
           {% if u.is_active %}<button name="action" value="deactivate" class="danger">Deactivate</button>{% else %}<button name="action" value="activate">Reactivate</button>{% endif %}
         </form>
-        <form method="post" action="/admin/users/{{ u.id }}" class="inline">{{ csrf_field(csrf) }}<input type="hidden" name="role" value="{{ 'viewer' if u.role == 'admin' else 'admin' }}">
-          <button name="action" value="role">Make {{ 'viewer' if u.role == 'admin' else 'admin' }}</button></form>
+        <form method="post" action="/admin/users/{{ u.id }}" class="inline">{{ csrf_field(csrf) }}
+          <select name="role" aria-label="Role for {{ u.username }}">{% for r in ('viewer', 'reviewer', 'admin') %}<option value="{{ r }}" {{ 'selected' if r == u.role }}>{{ r }}</option>{% endfor %}</select>
+          <button name="action" value="role">Set role</button></form>
         {% endif %}
         <details><summary class="small">Set password</summary>
           <form method="post" action="/admin/users/{{ u.id }}" class="row">{{ csrf_field(csrf) }}
@@ -34,7 +35,7 @@
   <form method="post" action="/admin/users" class="stack">{{ csrf_field(csrf) }}
     <label>Username <input name="username" required autocomplete="off"></label>
     <label>Password (at least {{ min_len }} characters) <input type="password" name="password" minlength="{{ min_len }}" autocomplete="new-password" required></label>
-    <label>Role <select name="role"><option value="viewer">viewer (read only)</option><option value="admin">admin (can edit and decide)</option></select></label>
+    <label>Role <select name="role"><option value="viewer">viewer (read only)</option><option value="reviewer">reviewer (decides review cards; Guide, Report, Notifications)</option><option value="admin">admin (everything, including budgets, users and imports)</option></select></label>
     <fieldset class="row"><legend class="small">Markets they can see</legend>
       {% for code, label in all_markets.items() %}<label><input type="checkbox" name="markets" value="{{ code }}" {{ 'checked' if code == 'US' }}> {{ label }}</label>{% endfor %}</fieldset>
     <button class="primary">Create</button>

@@ -1,5 +1,6 @@
 """Admin: scoring weights and re-scoring, users, imports (upload), audit log."""
 import re
+from datetime import datetime, timezone
 import shutil
 import tempfile
 from pathlib import Path
@@ -283,6 +284,47 @@ def reset_route(request: Request, confirm: str = Form(""), db: Session = Depends
 def audit_page(request: Request, db: Session = Depends(get_db), user=Depends(admin_view)):
     rows = list(db.scalars(select(m.AuditLog).order_by(m.AuditLog.at.desc(), m.AuditLog.id.desc()).limit(300)))
     return render(request, "admin_audit.html", user, rows=rows, section="audit")
+
+
+@router.get("/decisions")
+def decisions_page(request: Request, who: str = "", days: int = 7, db: Session = Depends(get_db),
+                   user=Depends(admin_view)):
+    """Every review decision a person made (reviewers, admins, the daily Claude review), newest first, with the
+    note they gave; the assistant's automatic decisions are on the Report page. CSV with ?format=csv."""
+    from datetime import timedelta
+    days = days if days in (1, 7, 30, 90) else 7
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    q = (select(m.ReviewItem).where(m.ReviewItem.status != "open", m.ReviewItem.decided_at >= since,
+                                    m.ReviewItem.decided_by.is_not(None), m.ReviewItem.decided_by != "assistant")
+         .order_by(m.ReviewItem.decided_at.desc()))
+    people = sorted({u for u, in db.execute(select(m.ReviewItem.decided_by).where(
+        m.ReviewItem.decided_at >= since, m.ReviewItem.decided_by.is_not(None),
+        m.ReviewItem.decided_by != "assistant").distinct())})
+    if who:
+        q = q.where(m.ReviewItem.decided_by == who)
+    items = list(db.scalars(q.limit(2000)))
+    roles = dict(db.execute(select(m.AppUser.username, m.AppUser.role)).all())
+    summary = {}
+    for it in items:
+        row = summary.setdefault(it.decided_by, {"total": 0, "approved": 0, "rejected": 0, "kinds": {}})
+        row["total"] += 1
+        row["approved" if it.status == "approved" else "rejected"] += 1
+        row["kinds"][it.kind] = row["kinds"].get(it.kind, 0) + 1
+    if request.query_params.get("format") == "csv":
+        import csv as _csv
+        import io as _io
+        from fastapi.responses import StreamingResponse
+        buf = _io.StringIO()
+        w = _csv.writer(buf)
+        w.writerow(["decided_at", "decided_by", "role", "card", "kind", "title", "outcome", "note"])
+        for it in items:
+            w.writerow([it.decided_at.isoformat(timespec="minutes"), it.decided_by, roles.get(it.decided_by, ""), it.id,
+                        it.kind, it.title, it.status, it.note or ""])
+        return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+                                 headers={"Content-Disposition": f'attachment; filename="decisions_{days}d.csv"'})
+    from .home import REVIEW_LABELS
+    return render(request, "admin_decisions.html", user, section="decisions", items=items, summary=summary,
+                  people=people, who=who, days=days, roles=roles, labels=REVIEW_LABELS)
 
 
 # ---------------------------------------------------------------- research and enrichment (Phase 4)

@@ -46,7 +46,7 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> m.AppUser:
         raise NotAuthenticated()
     # the markets this user may see, in the app's order (US first)
     request.state.markets = [mk for mk in m.MARKETS if mk in (user.markets or [])] or ["US"]
-    if user.role == "admin":
+    if user.role in m.REVIEW_ROLES:
         from ..notify import unread_count
         request.state.unread = unread_count(db, user.username)  # the header bell
     return user
@@ -70,6 +70,20 @@ def admin_view(user: m.AppUser = Depends(current_user)) -> m.AppUser:
     """For admin-only pages (GET): Admin, Review, Report, Notifications, Guide and the JSON API."""
     if user.role != "admin":
         raise Forbidden("This page is for admins only.")
+    return user
+
+
+def reviewer_view(user: m.AppUser = Depends(current_user)) -> m.AppUser:
+    """Review, Report, Notifications and the Guide: admins and reviewers."""
+    if user.role not in m.REVIEW_ROLES:
+        raise Forbidden("This page is for admins and reviewers.")
+    return user
+
+
+def reviewer_user(request: Request, user: m.AppUser = Depends(current_user), _=Depends(check_csrf)) -> m.AppUser:
+    """Review decisions (POST): admins and reviewers, with a valid CSRF token. Logged under the user's name."""
+    if user.role not in m.REVIEW_ROLES:
+        raise Forbidden("Only admins and reviewers can decide review items.")
     return user
 
 

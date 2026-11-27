@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ... import models as m
 from ...decisions import DecisionError, apply_safe, decide as decide_item, suggest, summaries, undo_screen
-from ..deps import require_market, current_market, admin_view, admin_user, current_user, flash, get_db, render, store_for
+from ..deps import reviewer_user, reviewer_view, require_market, current_market, admin_view, admin_user, current_user, flash, get_db, render, store_for
 from .home import REVIEW_LABELS
 
 router = APIRouter()
@@ -21,7 +21,7 @@ def _summaries(db: Session, ids: set[int]) -> dict:
 
 @router.get("/review")
 def inbox(request: Request, kind: str = "", status: str = "open", page: int = 1, db: Session = Depends(get_db),
-          user=Depends(admin_view)):
+          user=Depends(reviewer_view)):
     from ..views import REVIEW_IN_MARKET
     in_market = text(REVIEW_IN_MARKET).bindparams(market=current_market(request))
     counts = dict(db.execute(select(m.ReviewItem.kind, func.count()).where(m.ReviewItem.status == "open", in_market)
@@ -61,11 +61,14 @@ def inbox(request: Request, kind: str = "", status: str = "open", page: int = 1,
 
 @router.post("/review/{item_id}/decide")
 def decide(item_id: int, request: Request, action: str = Form(...), note: str = Form(""), db: Session = Depends(get_db),
-           user=Depends(admin_user)):
+           user=Depends(reviewer_user)):
     it = db.get(m.ReviewItem, item_id)
     if it is None or it.status != "open":
         raise HTTPException(404, "No open review item with that id")
     require_market(request, *(db.get(m.Organisation, i) for i in it.entity_ids))
+    if user.role == "reviewer" and len(note.strip()) < 3:
+        flash(request, f"#{it.id}: add a short reason in 'Note (why)' before deciding; it goes in the team decisions log.")
+        return RedirectResponse(f"/review?kind={it.kind}#item-{it.id}", status_code=303)
     try:
         done = decide_item(store_for(db, user), it, action, note)
     except DecisionError as e:
@@ -75,7 +78,7 @@ def decide(item_id: int, request: Request, action: str = Form(...), note: str = 
 
 
 @router.post("/review/bulk")
-def bulk(request: Request, kind: str = Form(...), db: Session = Depends(get_db), user=Depends(admin_user)):
+def bulk(request: Request, kind: str = Form(...), db: Session = Depends(get_db), user=Depends(reviewer_user)):
     if kind not in REVIEW_LABELS:
         raise HTTPException(400, "Unknown tab")
     out = apply_safe(store_for(db, user), kind, market=current_market(request))
@@ -88,7 +91,7 @@ def bulk(request: Request, kind: str = Form(...), db: Session = Depends(get_db),
 
 @router.post("/review/{item_id}/undo-screen")
 def undo_screen_route(item_id: int, request: Request, note: str = Form(""), db: Session = Depends(get_db),
-                      user=Depends(admin_user)):
+                      user=Depends(reviewer_user)):
     it = db.get(m.ReviewItem, item_id)
     if it is None:
         raise HTTPException(404, "No review item with that id")
@@ -103,7 +106,7 @@ def undo_screen_route(item_id: int, request: Request, note: str = Form(""), db: 
 
 @router.post("/review/{item_id}/ask")
 def ask_route(item_id: int, request: Request, questions: str = Form(...), investigate: str = Form("record"),
-              mode: str = Form("ownership"), db: Session = Depends(get_db), user=Depends(admin_user)):
+              mode: str = Form("ownership"), db: Session = Depends(get_db), user=Depends(reviewer_user)):
     """Send a card back to the researchers with specific questions; the answers come back on this card."""
     from ...research import RequestRefused, ask
     it = db.get(m.ReviewItem, item_id)

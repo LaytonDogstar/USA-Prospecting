@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import our_chip, csrf_field %}
-{% set admin = user.role == 'admin' %}
+{% set admin = user.role in ('admin', 'reviewer') %}{# can decide cards #}
 {% block title %}Review{% endblock %}
 {% block content %}
 <div class="page-head"><div>
@@ -13,7 +13,7 @@
   <a href="/review?kind={{ k }}" class="{{ 'on' if k == kind }}">{{ label }} <b>{{ counts.get(k, 0) }}</b></a>{% endif %}{% endfor %}
   <a href="/review?kind={{ kind }}&status=done" class="{{ 'on' if status != 'open' }}">Decided</a>
 </div>
-{% if not admin %}<p class="warnbox small">You can read the inbox. Only admins can decide items.</p>{% endif %}
+{% if not admin %}<p class="warnbox small">You can read the inbox. Only admins and reviewers can decide items.</p>{% endif %}
 {% if admin and status == 'open' and safe_on_tab %}
 <form method="post" action="/review/bulk" class="row panel" style="margin-bottom:14px" data-confirm="Apply the suggested decision to {{ safe_on_tab }} items on this tab?">{{ csrf_field(csrf) }}
   <input type="hidden" name="kind" value="{{ kind }}">

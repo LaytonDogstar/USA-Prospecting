@@ -60,7 +60,8 @@ REVIEW_KINDS = (
     "relationship_confirm", "manual_check", "research",
 )
 PROVIDERS = ("anthropic", "ahrefs", "similarweb", "hunter")
-USER_ROLES = ("admin", "viewer")
+USER_ROLES = ("admin", "reviewer", "viewer")  # reviewer: decides review cards, sees Guide/Report/Notifications, no Admin
+REVIEW_ROLES = ("admin", "reviewer")
 PERSON_ROLE_CATEGORIES = {
     "affiliate_partnerships": "Affiliate / partnerships manager",
     "acquisition_performance": "Head of acquisition / performance marketing",

@@ -6,13 +6,13 @@ from sqlalchemy import any_, literal, select
 from sqlalchemy.orm import Session
 
 from ... import models as m, notify
-from ..deps import admin_user, admin_view, check_csrf, get_db, render
+from ..deps import reviewer_view, admin_user, admin_view, check_csrf, get_db, render
 
 router = APIRouter()
 
 
 @router.get("/notifications")
-def notifications(request: Request, db: Session = Depends(get_db), user=Depends(admin_view)):
+def notifications(request: Request, db: Session = Depends(get_db), user=Depends(reviewer_view)):
     notify.auto_resolve(db)
     unread = notify.unread(db, user.username)
     earlier = list(db.scalars(select(m.Notification).where(notify.OPEN, literal(user.username) == any_(m.Notification.read_by))
@@ -32,7 +32,7 @@ def resolve_one(nid: int, request: Request, note: str = Form(""), db: Session = 
 
 @router.post("/notifications/read")
 def mark_read(request: Request, nid: int = Form(0), go: str = Form(""), db: Session = Depends(get_db),
-              user=Depends(admin_view), _=Depends(check_csrf)):
+              user=Depends(reviewer_view), _=Depends(check_csrf)):
     notify.mark_read(db, user.username, [nid] if nid else None)
     target = go if go.startswith("/") and not go.startswith("//") else "/notifications"
     return RedirectResponse(target, status_code=303)

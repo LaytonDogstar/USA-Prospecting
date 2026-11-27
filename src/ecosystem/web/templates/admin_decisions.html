@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Team decisions{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Admin</h1></div>
+  <a class="btn" href="?who={{ who }}&days={{ days }}&format=csv">Export CSV</a></div>
+{% include "_admin_nav.html" %}
+<p class="muted">Every review decision made by a person (reviewers, admins and the daily Claude review), with the reason they gave. The assistant's automatic decisions are on the <a href="/report">Report</a>. Each one is also in the audit log.</p>
+<form class="filters" method="get">
+  <label>Person <select name="who"><option value="">Everyone</option>
+    {% for p in people %}<option value="{{ p }}" {{ 'selected' if p == who }}>{{ p }}{% if roles.get(p) %} ({{ roles[p] }}){% endif %}</option>{% endfor %}</select></label>
+  <label>Period <select name="days">{% for d, l in [(1, 'Last day'), (7, 'Last 7 days'), (30, 'Last 30 days'), (90, 'Last 90 days')] %}<option value="{{ d }}" {{ 'selected' if d == days }}>{{ l }}</option>{% endfor %}</select></label>
+  <button class="primary">Show</button>
+</form>
+<section class="panel" style="margin-bottom:16px">
+  <h2>By person</h2>
+  {% if not summary %}<p class="muted">No decisions in this period.</p>{% else %}
+  <table class="compact"><thead><tr><th>Person</th><th>Role</th><th class="num">Decisions</th><th class="num">Approved / accepted</th><th class="num">Rejected</th><th>Cards</th></tr></thead><tbody>
+  {% for p, r in summary.items() %}<tr><td><a href="?who={{ p }}&days={{ days }}">{{ p }}</a></td><td class="small">{{ roles.get(p, '') }}</td>
+    <td class="num">{{ r.total }}</td><td class="num">{{ r.approved }}</td><td class="num">{{ r.rejected }}</td>
+    <td class="small">{% for k, n in r.kinds.items() %}{{ labels.get(k, k) }}: {{ n }}{{ '; ' if not loop.last }}{% endfor %}</td></tr>{% endfor %}
+  </tbody></table>{% endif %}
+</section>
+<section class="panel table-wrap">
+  <h2>Decisions <span class="small muted">{{ items | length }}</span></h2>
+  <table class="compact"><thead><tr><th>When</th><th>Who</th><th>Card</th><th>Outcome</th><th>Reason given</th></tr></thead><tbody>
+  {% for it in items %}<tr><td class="small muted">{{ it.decided_at.strftime('%d %b %H:%M') }}</td><td class="small">{{ it.decided_by }}</td>
+    <td><a href="/review?kind={{ it.kind }}&status=decided#item-{{ it.id }}">#{{ it.id }}</a> {{ it.title }}<div class="small muted">{{ labels.get(it.kind, it.kind) }}</div></td>
+    <td><span class="chip {{ 'good' if it.status == 'approved' else '' }}">{{ it.status }}</span></td>
+    <td class="small">{{ it.note or '—' }}</td></tr>
+  {% else %}<tr><td colspan="5" class="muted">Nothing in this period.</td></tr>{% endfor %}
+  </tbody></table>
+</section>
+{% endblock %}

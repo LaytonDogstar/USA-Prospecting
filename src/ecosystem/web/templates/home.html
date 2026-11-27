@@ -7,7 +7,7 @@
     <p class="muted">Best buyers and traffic sources we don't work with yet, what changed, and what needs a decision.</p></div>
 </div>
 
-{% set admin = user.role == 'admin' %}
+{% set admin = user.role in ('admin', 'reviewer') %}
 {% if needs and admin %}<section class="panel" style="margin-bottom:16px">
   <div class="row" style="justify-content: space-between"><h2>Needs you</h2><a href="/notifications">All notifications →</a></div>
   <ul class="small">{% for n in needs %}<li><span class="chip {{ 'warn' if n.level in ('problem', 'warning') else 'good' }}">{{ {'problem': 'problem', 'action': 'needs you', 'warning': 'heads up'}[n.level] }}</span>
